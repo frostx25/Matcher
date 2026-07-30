@@ -1,0 +1,47 @@
+version: 1
+domain: onboarding-profile
+
+scenarios:
+  - id: ONB-001-adult-required
+    name: Onboarding exige confirmação de maioridade e termos
+    given:
+      - profile_exists: false
+      - birth_year: 1995
+      - age_confirmed: true
+      - terms_accepted: true
+      - display_name: "Pessoa teste"
+    when:
+      - complete_onboarding: true
+    then:
+      - profile_saved: true
+      - discovery_visible: true
+      - profile_tab_shows_display_name: true
+
+  - id: ONB-002-minor-blocked
+    name: Pessoa menor de idade não conclui o onboarding
+    given:
+      - profile_exists: false
+      - birth_year: 2010
+      - age_confirmed: true
+      - terms_accepted: true
+      - display_name: "Pessoa teste"
+    when:
+      - complete_onboarding: true
+    then:
+      - profile_saved: false
+      - discovery_visible: false
+      - error: ADULTS_ONLY
+
+  - id: PROFILE-001-local-summary
+    name: Perfil local exibe apenas dados fornecidos pelo usuário
+    given:
+      - profile_exists: true
+      - display_name: "Pessoa teste"
+      - bio: "Bio sintética"
+      - intent: "Conhecer pessoas"
+    when:
+      - open_profile_tab: true
+    then:
+      - profile_tab_shows_display_name: true
+      - profile_tab_shows_bio: true
+      - exact_location_visible: false

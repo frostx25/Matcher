@@ -234,6 +234,7 @@ Publicar com faixa etária correta, Data safety preenchido, política de privaci
 - [Ambiente local](docs/LOCAL_DEV.md)
 - [Harness de testes](harness/README.md)
 - [Cenários de conversa e quota](harness/scenarios/chat.yml)
+- [Cenários de onboarding e perfil](harness/scenarios/onboarding.yml)
 
 ## Referências consultadas
 

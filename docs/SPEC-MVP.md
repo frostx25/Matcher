@@ -25,6 +25,8 @@ Permitir que pessoas adultas descubram perfis próximos e iniciem conversas dire
 - Sessão revogável, recuperação de conta e logout de todos os dispositivos.
 - Exclusão de conta no app e solicitação de exclusão por página web.
 
+No protótipo local, o onboarding usa ano de nascimento, confirmação explícita de 18+ e aceite separado dos Termos/Política. O perfil só é salvo e a descoberta só fica disponível depois dessas confirmações. Isso é uma barreira de fluxo para desenvolvimento; não substitui a verificação robusta exigida para produção.
+
 ### 3.2 Perfil
 
 - Nome de exibição, idade derivada da data de nascimento, bio e até cinco fotos.
@@ -110,6 +112,8 @@ Excluir conta remove ou anonimiza dados associados conforme a política de reten
 
 - **AC-ONB-01:** usuário menor de 18 anos não consegue concluir o onboarding adulto.
 - **AC-ONB-02:** sem aceite dos termos, o perfil não fica público.
+- **AC-ONB-03:** ano de nascimento incompatível com 18+ bloqueia o avanço e não salva perfil.
+- **AC-ONB-04:** com maioridade, termos aceitos e nome preenchido, o perfil local é salvo e a aba Perfil exibe os dados sintéticos.
 - **AC-DISC-01:** a grade carrega em páginas e permite continuar rolando sem recarregar os primeiros itens.
 - **AC-DISC-02:** nenhuma tela mostra a distância exata ou coordenadas.
 - **AC-CHAT-01:** tocar em Conversar permite escrever a primeira mensagem e mostra a quota antes do envio.

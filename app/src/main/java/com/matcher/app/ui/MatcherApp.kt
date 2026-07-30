@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -64,11 +65,12 @@ import androidx.compose.ui.unit.sp
 import com.matcher.app.domain.chat.ChatRequestRepository
 import com.matcher.app.domain.chat.ChatRequestResult
 import com.matcher.app.domain.chat.InMemoryChatRequestRepository
+import com.matcher.app.domain.profile.LocalProfileStore
 
-private val Black = Color(0xFF0B0B0F)
-private val Surface = Color(0xFF17131A)
-private val Pink = Color(0xFFFF2D7A)
-private val TextSecondary = Color(0xFFB9AEB5)
+internal val Black = Color(0xFF0B0B0F)
+internal val Surface = Color(0xFF17131A)
+internal val Pink = Color(0xFFFF2D7A)
+internal val TextSecondary = Color(0xFFB9AEB5)
 private const val DemoUserId = "user-free"
 
 private data class Profile(
@@ -93,6 +95,20 @@ private val demoProfiles = listOf(
 
 @Composable
 fun MatcherApp(chatRequestRepository: ChatRequestRepository? = null) {
+    val context = LocalContext.current
+    val profileStore = remember(context) { LocalProfileStore(context) }
+    var localProfile by remember { mutableStateOf(profileStore.load()) }
+    val savedProfile = localProfile
+    if (savedProfile == null) {
+        OnboardingScreen(
+            onComplete = { profile ->
+                profileStore.save(profile)
+                localProfile = profile
+            },
+        )
+        return
+    }
+
     val repository = chatRequestRepository ?: remember { InMemoryChatRequestRepository(initialQuota = 5) }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var remainingChats by rememberSaveable { mutableIntStateOf(repository.remainingQuota) }
@@ -105,31 +121,36 @@ fun MatcherApp(chatRequestRepository: ChatRequestRepository? = null) {
             BottomNavigationBar(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
         },
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .testTag("discovery-grid"),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Header(remainingChats = remainingChats)
+        when (selectedTab) {
+            0 -> LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .testTag("discovery-grid"),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Header(remainingChats = remainingChats)
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Filters()
+                }
+                items(demoProfiles, key = { it.id }) { profile ->
+                    ProfileCard(
+                        profile = profile,
+                        onOpenChat = {
+                            selectedProfile = profile
+                            chatError = null
+                        },
+                    )
+                }
             }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Filters()
-            }
-            items(demoProfiles, key = { it.id }) { profile ->
-                ProfileCard(
-                    profile = profile,
-                    onOpenChat = {
-                        selectedProfile = profile
-                        chatError = null
-                    },
-                )
-            }
+
+            1 -> ConversationsScreen(modifier = Modifier.padding(padding))
+            else -> ProfileScreen(profile = savedProfile, modifier = Modifier.padding(padding))
         }
     }
 
@@ -375,18 +396,21 @@ private fun BottomNavigationBar(selectedTab: Int, onTabSelected: (Int) -> Unit) 
             onClick = { onTabSelected(0) },
             icon = { Icon(Icons.Outlined.Search, contentDescription = "Descobrir") },
             label = { Text("Descobrir") },
+            modifier = Modifier.testTag("tab-discovery"),
         )
         NavigationBarItem(
             selected = selectedTab == 1,
             onClick = { onTabSelected(1) },
             icon = { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = "Conversas") },
             label = { Text("Conversas") },
+            modifier = Modifier.testTag("tab-conversations"),
         )
         NavigationBarItem(
             selected = selectedTab == 2,
             onClick = { onTabSelected(2) },
             icon = { Icon(Icons.Outlined.Person, contentDescription = "Perfil") },
             label = { Text("Perfil") },
+            modifier = Modifier.testTag("tab-profile"),
         )
         IconButton(onClick = {}, modifier = Modifier.padding(end = 8.dp)) {
             Icon(Icons.Outlined.Tune, contentDescription = "Configurações", tint = Pink)

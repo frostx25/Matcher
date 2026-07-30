@@ -33,6 +33,11 @@ O harness deve funcionar com dados sintéticos, sem depender de uma VM de produ�
 - Entitlement válido, expirado, cancelado e compra não reconhecida.
 - Nunca incluir e-mail, telefone, foto ou coordenada de pessoa real.
 
+Os cenários executáveis ficam em:
+
+- `harness/scenarios/onboarding.yml`: maioridade, termos e perfil local.
+- `harness/scenarios/chat.yml`: solicitações diretas e quota de novas conversas.
+
 ## Comandos planejados
 
 Quando o projeto Android estiver criado, os comandos oficiais serão padronizados no Gradle Wrapper:
