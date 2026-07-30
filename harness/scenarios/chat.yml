@@ -1,0 +1,91 @@
+version: 1
+domain: direct-chat
+
+scenarios:
+  - id: CHAT-001-free-quota
+    name: Free abre cinco novas conversas
+    given:
+      - user: user-free
+      - quota_new_chat_requests: 5
+      - recipient: user-target-01
+    when:
+      - send_first_message: "Oi, tudo bem?"
+    then:
+      - create_chat_request: true
+      - quota_new_chat_requests: 4
+      - recipient_state: pending
+
+  - id: CHAT-002-sixth-blocked
+    name: Sexta abertura do Free é bloqueada
+    given:
+      - user: user-free
+      - quota_new_chat_requests: 0
+      - recipient: user-target-06
+    when:
+      - send_first_message: "Olá"
+    then:
+      - create_chat_request: false
+      - error: CHAT_QUOTA_EXHAUSTED
+      - quota_error_visible: true
+      - preserve_existing_conversations: true
+
+  - id: CHAT-003-existing-does-not-consume
+    name: Mensagem em conversa ativa não consome nova abertura
+    given:
+      - user: user-free
+      - quota_new_chat_requests: 0
+      - conversation_state: active
+    when:
+      - send_message: "Continuando nossa conversa"
+    then:
+      - message_delivered: true
+      - quota_new_chat_requests: 0
+
+  - id: CHAT-004-recipient-control
+    name: Destinatário controla solicitação
+    given:
+      - chat_request_state: pending
+    when:
+      - recipient_action: ignore
+    then:
+      - conversation_state: ignored
+      - sender_can_continue_sending: false
+
+  - id: CHAT-005-block
+    name: Bloqueio interrompe contato
+    given:
+      - conversation_state: active
+    when:
+      - recipient_action: block
+    then:
+      - conversation_visible_to_both: false
+      - new_messages_allowed: false
+      - discovery_visibility_between_users: false
+
+  - id: CHAT-006-atomic-quota
+    name: Quota não sofre corrida concorrente
+    given:
+      - user: user-free
+      - quota_new_chat_requests: 1
+      - two_concurrent_first_messages: true
+    when:
+      - submit_both_requests: true
+    then:
+      - successful_chat_requests: 1
+      - rejected_requests: 1
+      - quota_new_chat_requests: 0
+
+  - id: CHAT-007-client-boundary
+    name: Cliente consome a decisão de quota sem decrementar sozinho
+    given:
+      - adapter: fake-authoritative-chat-repository
+      - user: user-free
+      - quota_new_chat_requests: 0
+      - recipient: user-target-07
+    when:
+      - send_first_message: "Olá"
+    then:
+      - create_chat_request: false
+      - error: CHAT_QUOTA_EXHAUSTED
+      - quota_new_chat_requests: 0
+      - quota_error_visible: true

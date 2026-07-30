@@ -1,0 +1,14 @@
+# Gradle and Android build output
+.gradle/
+.kotlin/
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Local SDK configuration
+local.properties
+
+# Local installer/session artifacts
+inst_user_settings.tmp
