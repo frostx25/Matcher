@@ -1,0 +1,29 @@
+project_id = "matcher"
+
+[auth]
+enabled = true
+site_url = "matcher://auth/callback"
+additional_redirect_urls = ["matcher://auth/callback"]
+enable_signup = true
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[functions.age-verification-session]
+verify_jwt = true
+
+[functions.age-verification-webhook]
+verify_jwt = false
+
+[functions.age-verification-return]
+verify_jwt = false
+
+[functions.private-album-media]
+verify_jwt = true
+
+[functions.private-album-cleanup]
+verify_jwt = true
+
+[functions.private-album-delete]
+verify_jwt = true

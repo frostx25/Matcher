@@ -1,148 +1,136 @@
 # Ambiente local do Matcher
 
-## 1. Perfil recomendado
+## Perfil adotado nesta máquina
 
-Para desenvolvimento confortável com Android Studio, um emulador e serviços locais:
+O fluxo principal usa um aparelho Android físico conectado por USB. Não é necessário criar ou manter emulador nesta máquina.
 
-- Windows 11 64-bit atualizado.
-- CPU Intel Core i5/i7 recente ou AMD Ryzen 5/7, com VT-x/AMD-V habilitado na BIOS/UEFI.
-- 16 GB de RAM como mínimo prático; 32 GB recomendado.
-- SSD com pelo menos 50 GB livres para o ciclo inicial; 100 GB livres é mais confortável com SDKs, Gradle, AVDs e imagens.
-- GPU com pelo menos 4 GB de VRAM para usar emulador com maior conforto; 8 GB é preferível.
-- Conexão estável para SDKs, dependências e imagens de teste.
-- Um aparelho Android físico é útil como segunda validação, mas não é obrigatório para começar; o projeto será iniciado com um único emulador AVD leve.
+- Windows 11.
+- Android Studio instalado em `C:\Program Files\Android\Android Studio`.
+- JDK 17 fornecido pelo Android Studio.
+- Android SDK em `C:\Users\leeoc\AppData\Local\Android\Sdk`.
+- Gradle Wrapper do próprio projeto.
+- Supabase remoto exclusivo de desenvolvimento; Docker fica opcional e é ligado apenas para migrations/pgTAP.
 
-O disco D: foi escolhido para os artefatos pesados e tem aproximadamente 931 GB livres. O projeto pode continuar no workspace atual, mas SDK, imagens do emulador e caches devem ficar em D:.
+Com aproximadamente 24 GB de RAM, é possível validar o backend localmente com Docker sem precisar manter um emulador Android aberto.
 
-O Android Studio informa 16 GB como mínimo para Studio + Emulator e 32 GB como recomendado; para esse cenário, também recomenda GPU com 4 GB de VRAM no mínimo e 8 GB na configuração recomendada. A aceleração do emulador depende de virtualização habilitada. [Android Studio](https://developer.android.com/studio/install.html) · [aceleração do emulador](https://developer.android.com/studio/run/emulator-acceleration)
+## Configuração Android
 
-## 2. Diagnóstico da máquina atual
+O `local.properties` deve conter o caminho do SDK e apenas os dois valores públicos do projeto Supabase de desenvolvimento:
 
-Detectado neste workspace:
-
-- Windows 11 Home Single Language.
-- Intel Core i7-10510U, 4 cores/8 threads.
-- 7,8 GB de RAM.
-- NVIDIA GeForce MX250, 2 GB de VRAM.
-- Aproximadamente 21,6 GB livres no disco C:.
-
-### Conclusão
-
-Esta máquina é suficiente para começar com Android Studio, compilação e um emulador AVD leve, mas não é adequada para manter simultaneamente Android Studio, emulador pesado, Docker e backend local completo. O gargalo principal é memória, VRAM e espaço livre.
-
-## 3. Modo local recomendado agora
-
-### Perfil `fast`
-
-- Android Studio aberto.
-- Emulador fechado durante testes puramente unitários.
-- Backend fake/in-memory para testes de tela e domínio.
-- Supabase de desenvolvimento remoto somente quando precisarmos validar autenticação, storage ou realtime.
-- Testes unitários e de contrato executados localmente.
-
-### Perfil `device`
-
-- Android Studio + um único emulador AVD leve ou aparelho físico.
-- Backend de desenvolvimento isolado.
-- Testes de fluxo: onboarding, grade, quota, solicitação de conversa, bloqueio e denúncia.
-
-### Perfil `full`
-
-- Android Studio + emulador acelerado.
-- Docker/WSL2 com serviços locais.
-- Reservado para uma máquina com pelo menos 16 GB de RAM e mais espaço livre, ou para CI.
-
-Docker Desktop no Windows usa WSL2 ou Hyper-V; o backend WSL2 exige virtualização e pelo menos 8 GB de RAM no sistema. Na máquina atual, não será o modo padrão. [Docker no Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
-
-## 4. Software local
-
-- Android Studio no canal stable.
-- Android SDK, Platform Tools e `adb`.
-- Git.
-- JDK fornecido pelo Android Studio; usar o Gradle Wrapper do projeto.
-- Navegador moderno para painel e documentação.
-- Docker Desktop + WSL2 apenas quando o perfil `full` for necessário.
-- Conta de desenvolvimento separada para Supabase/serviços externos; nenhuma credencial de produção no ambiente local.
-
-### Caminhos recomendados
-
-- Android Studio portátil: `D:\Android\AndroidStudio\android-studio`
-- Android SDK: `D:\Android\Sdk`
-- AVDs/imagens do emulador: `D:\Android\Avd`
-- Cache do Gradle: `D:\Android\Gradle`
-- Cache opcional de dependências: `D:\Android\Caches`
-
-No Android Studio, confirmar `D:\Android\Sdk` como localização do SDK. Para os demais caches, configurar as variáveis de usuário antes do primeiro build:
-
-```text
-ANDROID_AVD_HOME=D:\Android\Avd
-GRADLE_USER_HOME=D:\Android\Gradle
-ANDROID_HOME=D:\Android\Sdk
+```properties
+sdk.dir=C\:\\Users\\leeoc\\AppData\\Local\\Android\\Sdk
+SUPABASE_URL=https\://<PROJECT_REF>.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_<PUBLIC_KEY>
 ```
 
-O Android Studio está em `D:\Android\AndroidStudio\android-studio`; os componentes grandes também ficam em D:. Depois de configurar os caminhos, reiniciar o Android Studio para que o Device Manager e o Gradle reconheçam as variáveis.
+Esse arquivo é ignorado pelo Git. Nunca adicionar senha do banco, chave secreta ou `service_role`; esses valores não pertencem ao APK.
 
-O projeto já inclui Gradle Wrapper 9.5.1. O primeiro build usa `compileSdk 37.1`, `targetSdk 36`, JDK 17 do Android Studio e pode baixar dependências para `D:\Android\Gradle`.
+O projeto remoto de desenvolvimento usa um código OTP numérico de seis dígitos. O template de e-mail deve exibir `{{ .Token }}`; ao receber o sexto dígito, o Android valida o código automaticamente com o Supabase Auth, confirma ou cria a conta e não usa deep link. Se o comprimento for alterado no provedor, o contrato e a constante `EMAIL_OTP_LENGTH` do Android devem ser atualizados juntos.
 
-Build e instalação local:
+O onboarding coleta somente o ano de nascimento, a autodeclaração 18+ e o aceite dos Termos/Política. O Android envia `birth_year` à RPC `complete_onboarding`; data, mês e dia de nascimento não são solicitados nem armazenados. Quando o servidor aceita esses dados, conta e perfil ficam ativos e utilizáveis como não verificados.
+
+A experiência hospedada do Didit não faz parte do onboarding obrigatório. Depois, a pessoa pode iniciar **Verificar 18+** na aba Perfil e o Android abre uma Custom Tab. Documento brasileiro, captura ao vivo para prova de vida passiva e correspondência facial são sempre exigidos para conceder o selo; o Matcher não solicita permissão `CAMERA` nem copia a mídia. Não iniciar, cancelar, falhar ou ficar em revisão mantém a conta ativa como não verificada e não bloqueia descoberta/chat.
+
+Fotos de perfil seguem um fluxo separado do Didit. Nos fakes e no backend de desenvolvimento, cada nova versão começa privada em `pending`; terceiros recebem placeholder cinza até `approved`, e decisões `adult` ou `abusive` também mantêm a mídia privada. Uma versão nova não substitui a versão aprovada atual antes da própria aprovação. Fixtures configuram esses estados diretamente para testes e não representam nem prometem classificação automática.
+
+No plano Free atual, o Supabase mantém os templates padrão somente para leitura enquanto usa o serviço de e-mail compartilhado. Para entregar o código, habilitar SMTP próprio (ou um Send Email Hook/upgrade), depois alterar o template **Magic link or OTP** para mostrar `{{ .Token }}`. Até essa configuração existir, o provedor continuará enviando o link padrão, embora o app já esteja preparado para validar o código.
+
+## Build e testes locais
+
+No PowerShell, a partir da raiz do repositório:
 
 ```powershell
-$env:JAVA_HOME="D:\Android\AndroidStudio\android-studio\jbr"
-$env:ANDROID_HOME="D:\Android\Sdk"
-$env:ANDROID_SDK_ROOT="D:\Android\Sdk"
-$env:GRADLE_USER_HOME="D:\Android\Gradle"
-.\gradlew.bat :app:assembleDebug
-& "D:\Android\Sdk\platform-tools\adb.exe" install -r .\app\build\outputs\apk\debug\app-debug.apk
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+.\gradlew.bat :app:testDebugUnitTest --no-daemon '-Pkotlin.incremental=false'
+.\gradlew.bat :app:lintDebug :app:assembleDebug --no-daemon '-Pkotlin.incremental=false'
 ```
 
-Smoke test no emulador conectado:
+O APK é gerado em `app\build\outputs\apk\debug\app-debug.apk`.
+
+## Aparelho físico
+
+1. Ativar Opções do desenvolvedor e Depuração USB no aparelho.
+2. Conectar por USB e aceitar a chave RSA exibida no Android.
+3. Confirmar e instalar:
 
 ```powershell
-.\gradlew.bat :app:connectedDebugAndroidTest
+$adb="C:\Users\leeoc\AppData\Local\Android\Sdk\platform-tools\adb.exe"
+& $adb devices
+& $adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-## 5. Configuração inicial do emulador
-
-Para esta máquina, criar somente um AVD de telefone com:
-
-- Imagem `x86_64`, compatível com o processador Intel.
-- Uma versão Android estável disponível no SDK Manager.
-- Resolução de telefone menor ou média; evitar AVD de tablet, foldable ou XR.
-- RAM do AVD entre 1,5 GB e 2 GB.
-- Graphics em `Automatic`; usar `Software` apenas se o driver da MX250 apresentar falhas.
-- Snapshot habilitado para não reiniciar o sistema inteiro a cada execução.
-- Fechar Docker e outros AVDs enquanto o emulador estiver aberto.
-
-AVD criado e validado: `Matcher_Pixel_Lite`, usando `android-35-ext15/google_apis/x86_64`, 1,5 GB de RAM e GPU automática. O `adb` reconheceu o dispositivo e o boot terminou com sucesso; a aceleração WHPX está disponível.
-
-No Windows, habilitar virtualização na BIOS/UEFI e confirmar a aceleração com o `-accel-check`. O Android Emulator usa aceleração de CPU/GPU para melhorar velocidade; sem ela, o teste pode ficar impraticável. [Aceleração do emulador](https://developer.android.com/studio/run/emulator-acceleration)
-
-Fluxo no Android Studio:
-
-1. Abrir **Tools > Device Manager**.
-2. Criar um novo dispositivo virtual de telefone.
-3. Escolher uma imagem `x86_64` estável e baixá-la pelo SDK Manager.
-4. Ajustar RAM para 1,5–2 GB e Graphics para `Automatic`.
-5. Iniciar o AVD e executar um build `debug`.
-6. Se houver lentidão extrema, reduzir resolução/RAM, fechar o Docker e testar Graphics `Software`.
-
-Para iniciar pelo terminal:
+Os testes Compose instrumentados usam explicitamente o backend fake para permanecerem determinísticos:
 
 ```powershell
-$env:ANDROID_AVD_HOME="D:\Android\Avd"
-D:\Android\Sdk\emulator\emulator.exe -avd Matcher_Pixel_Lite -gpu auto
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+.\gradlew.bat :app:connectedDebugAndroidTest --no-daemon '-Pkotlin.incremental=false'
 ```
 
-## 6. Teste em aparelho físico
+Ao abrir normalmente o APK instalado, o app usa o backend Supabase remoto configurado. Para completar o login, informar o e-mail, consultar a caixa de entrada em qualquer aparelho e digitar no Matcher o código recebido.
 
-1. Ativar Opções do desenvolvedor e Depuração USB.
-2. Conectar o aparelho e aceitar a chave RSA.
-3. Confirmar com `adb devices`.
-4. Instalar o build debug.
-5. Executar smoke tests com rede normal, rede lenta e localização aproximada/desativada.
+## Backend remoto de desenvolvimento
 
-O emulador será o caminho principal neste início. Um aparelho físico poderá ser adicionado depois para validar câmera, notificações, consumo de bateria e comportamento em hardware real. [Executar em dispositivo físico](https://developer.android.com/studio/run/device.html)
+- Projeto: `Matcher Dev`.
+- Project ref: `gevdssaambgivxiqilad`.
+- Região: São Paulo (`sa-east-1`).
+- Migrations, seed e testes reproduzíveis ficam em `supabase/`.
+- O seed contém somente identidades sintéticas com e-mails no domínio reservado `.invalid` e não deve ser aplicado em produção.
 
-## 7. Quando passar para uma VM
+A CLI local está disponível em `work\tools\supabase-cli\supabase.exe`. Vincular a CLI é opcional e exige autenticação local; a senha do banco não deve ser salva no repositório.
 
-A VM só será necessária para staging/produção. Nesse momento, definir Ubuntu LTS, Docker, HTTPS, backups, monitoramento, banco/Storage persistentes e firewall. A VM não deve ser usada para emular Android; o emulador acelerado precisa rodar diretamente no host, não dentro de outra VM. [limitação de aceleração do emulador](https://developer.android.com/studio/run/emulator-acceleration)
+Em uma máquina com Docker suficiente, o backend também pode ser validado localmente:
+
+```powershell
+supabase start
+supabase db reset
+supabase test db
+supabase db lint --local
+```
+
+Nesta máquina, o projeto remoto isolado é o modo padrão. Nunca executar `db reset --linked` contra um projeto que contenha dados importantes.
+
+## Selo 18+ hospedado e opcional
+
+Antes do deploy, crie no Didit Business Console um workflow por ambiente com esta ordem e publique uma versão imutável:
+
+1. **ID Verification:** aceitar somente documentos brasileiros suportados, validar autenticidade e aplicar idade mínima de 18 anos.
+2. **Passive Liveness:** exigir captura ao vivo e confirmar `method = PASSIVE` na decisão.
+3. **Face Match:** exigir correspondência 1:1 entre o retrato do documento e a captura ao vivo.
+
+Configure a retenção do workflow em **um mês**, o mínimo adotado. Copie o identificador e a versão que aparecem depois da publicação; rascunho, versão diferente, controle ausente ou estado `In Review` não podem conceder o selo.
+
+As credenciais do Didit pertencem exclusivamente às Edge Functions. Elas nunca devem entrar em `local.properties`, `BuildConfig`, APK, log ou commit. Crie localmente `supabase\functions\.env.local` a partir do exemplo versionado e preencha:
+
+```dotenv
+DIDIT_API_KEY=<segredo-do-mesmo-ambiente>
+DIDIT_WORKFLOW_ID=<id-do-workflow-publicado>
+DIDIT_WORKFLOW_VERSION=<versao-publicada>
+DIDIT_WEBHOOK_SECRET=<segredo-do-webhook>
+DIDIT_ENVIRONMENT=sandbox
+```
+
+`DIDIT_ENVIRONMENT` aceita somente `sandbox` ou `live`, exatamente como a API Didit devolve. Chave, workflow, versão e webhook precisam pertencer ao mesmo ambiente; sandbox nunca concede selo no ambiente live. O webhook Didit v3 deve apontar para `age-verification-webhook`, mas sua notificação serve apenas como gatilho para a consulta servidor-servidor da decisão.
+
+Cada criação opcional usa o workflow KYC publicado; `session_kind` não é enviado e a resposta inicial v3 pode omiti-lo, mas a decisão autoritativa deve confirmá-lo como `user`. `vendor_data` é um pseudônimo opaco estável por usuário, sem ID de autenticação, identificador direto ou dado de perfil; a referência da tentativa é opaca, única por criação e armazenada separadamente. Se o Didit devolver `In Review`, o backend mantém revisão pendente na mesma sessão e não cria nem reabre outra até a decisão final, sem alterar o acesso da conta.
+
+Depois de alinhar a implementação ao contrato opcional, as Edge Functions são publicadas com:
+
+```powershell
+$supabase="..\tools\supabase-cli\supabase.exe"
+& $supabase secrets set --env-file .\supabase\functions\.env.local
+& $supabase functions deploy age-verification-return
+& $supabase functions deploy age-verification-webhook
+& $supabase functions deploy age-verification-session
+```
+
+A migration histórica `20260731170000_age_assurance_gate.sql` representa o contrato antigo, no qual o Didit bloqueava o acesso. Ela continua na cadeia imutável e deve ser aplicada em ordem; `20260731190000_soft_age_gate_profile_photos.sql` a substitui imediatamente, recupera contas elegíveis e torna o Didit opcional. Nunca aplique apenas a migration antiga em um ambiente novo. O retorno `matcher://age-verification/...` apenas reabre o Android e força uma consulta; ele nunca comprova o selo.
+
+Antes de executar esses comandos, confirme que as Edge Functions consomem as cinco variáveis `DIDIT_*`, validam workflow/versão, `session_kind = user`, pseudônimo/referência de tentativa e liveness `PASSIVE`, bloqueiam somente outra sessão Didit durante `In Review` e não persistem nem registram a resposta bruta. Falha ou revisão não pode desativar a conta, e suspensão/moderação devem prevalecer sobre o selo. Qualquer divergência bloqueia o deploy até a implementação ser alinhada ao [contrato do selo opcional](age-assurance.md).
+
+Na data deste guia, o Didit divulga 500 verificações gratuitas mensais para cada recurso central. Este fluxo consome ID Verification, Passive Liveness e Face Match; 500 fluxos completos é somente o máximo teórico sem repetições. Confira painel, documentação e termos vigentes antes do deploy e durante a operação, pois franquia e preço podem mudar. Não prometa gratuidade nem habilite cobrança excedente sem aprovação explícita.
+
+## Perfis de execução
+
+- `fast`: testes unitários e backend fake, sem aparelho necessário.
+- `device`: Android Studio, aparelho físico e Supabase remoto de desenvolvimento; é o perfil principal.
+- `full`: Docker, stack Supabase local e testes completos; reservado para CI ou máquina com mais memória.

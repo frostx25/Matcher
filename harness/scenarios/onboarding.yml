@@ -1,21 +1,59 @@
-version: 1
+version: 12
 domain: onboarding-profile
 
 scenarios:
+  - id: AUTH-001-email-otp-code
+    name: Código OTP recebido por e-mail autentica dentro do Android
+    given:
+      - email_otp_requested: true
+      - otp_delivery: numeric_code
+      - otp_length: 6
+    when:
+      - type_sixth_otp_digit: true
+    then:
+      - otp_verification_started_automatically: true
+      - auth_session_created: true
+      - account_created_or_confirmed: true
+      - otp_persisted_by_app: false
+      - otp_written_to_logs: false
+      - secret_key_present_in_apk: false
+
+  - id: AUTH-002-invalid-otp
+    name: Código inválido ou expirado não cria sessão
+    given:
+      - email_otp_requested: true
+      - otp_status: invalid_or_expired
+    when:
+      - submit_otp_in_app: true
+    then:
+      - auth_session_created: false
+      - generic_auth_error_visible: true
+
   - id: ONB-001-adult-required
-    name: Onboarding exige confirmação de maioridade e termos
+    name: Onboarding básico ativa perfil utilizável como não verificado
     given:
       - profile_exists: false
       - birth_year: 1995
       - age_confirmed: true
       - terms_accepted: true
       - display_name: "Pessoa teste"
+      - gender_identity_ids: [non_binary]
+      - gender_visible: true
+      - looking_for_gender_ids: [woman, non_binary]
     when:
       - complete_onboarding: true
     then:
       - profile_saved: true
       - discovery_visible: true
+      - conversations_allowed_subject_to_independent_rules: true
       - profile_tab_shows_display_name: true
+      - account_status: active
+      - age_verification_status: not_started
+      - verified_18_plus_badge_visible: false
+      - didit_session_created_automatically: false
+      - activation_decided_by: server
+      - gender_identity_saved_separately: true
+      - discovery_preference_saved_privately: true
 
   - id: ONB-002-minor-blocked
     name: Pessoa menor de idade não conclui o onboarding
@@ -31,6 +69,403 @@ scenarios:
       - profile_saved: false
       - discovery_visible: false
       - error: ADULTS_ONLY
+
+  - id: ONB-003-gender-and-preference-are-distinct
+    name: Identidade e preferência são escolhas distintas no onboarding
+    given:
+      - profile_exists: false
+      - birth_year: 1995
+      - age_confirmed: true
+      - terms_accepted: true
+      - display_name: "Pessoa sintética"
+      - gender_identity_ids: [man, self_described]
+      - gender_self_description: "Identidade sintética"
+      - gender_visible: true
+      - looking_for_gender_ids: [woman, non_binary]
+    when:
+      - complete_onboarding: true
+    then:
+      - profile_saved: true
+      - gender_identity_ids_saved: [man, self_described]
+      - gender_self_description_saved_verbatim: true
+      - looking_for_gender_ids_saved: [woman, non_binary]
+      - preference_inferred_from_identity: false
+      - preference_visible_to_third_parties: false
+      - server_validated_catalog_and_exclusive_values: true
+
+  - id: ONB-004-prefer-not-to-say
+    name: Prefiro não informar conclui onboarding sem inferência
+    given:
+      - profile_exists: false
+      - birth_year: 1995
+      - age_confirmed: true
+      - terms_accepted: true
+      - display_name: "Pessoa sintética"
+      - gender_identity_ids: [prefer_not_to_say]
+      - gender_visible: false
+      - looking_for_gender_ids: [everyone]
+    when:
+      - complete_onboarding: true
+    then:
+      - profile_saved: true
+      - gender_identity_hidden: true
+      - gender_inferred_from_name_bio_photo_or_messages: false
+      - looking_for_gender_ids_saved: [everyone]
+      - account_status: active
+
+  - id: ONB-005-unverified-can-discover
+    name: Conta ativa sem Didit acessa descoberta como não verificada
+    given:
+      - auth_session_valid: true
+      - account_status: active
+      - onboarding_complete: true
+      - age_verification_status: not_started
+    when:
+      - list_discovery_profiles: true
+    then:
+      - discovery_request_allowed: true
+      - account_remains_unverified: true
+      - verified_18_plus_badge_visible: false
+      - server_authoritative: true
+
+  - id: AGE-001-didit-optional-checks-pass
+    name: Workflow Didit opcional com os três controles aprovados concede somente o selo
+    given:
+      - account_status: active
+      - onboarding_complete: true
+      - verification_started_from_profile: true
+      - provider: didit
+      - session_kind: user
+      - vendor_data_is_stable_user_pseudonym: true
+      - attempt_reference_is_unique_and_separate: true
+      - workflow_state: published
+      - workflow_id_matches_configured: true
+      - workflow_version_matches_configured: true
+      - document_country: BR
+      - document_verification: approved
+      - minimum_age_required: 18
+      - minimum_age_requirement_met: true
+      - passive_liveness: approved
+      - passive_liveness_method: PASSIVE
+      - face_match: approved
+      - provider_state: Approved
+    when:
+      - webhook_signature_v2_valid: true
+      - authoritative_decision_retrieved_by_backend: true
+      - opaque_session_binding_matches: true
+    then:
+      - account_status: active
+      - age_verification_status: verified
+      - discovery_visible: true
+      - badge: verified_18_plus
+      - identity_verified_badge_visible: false
+      - biometric_media_stored_by_matcher: false
+
+  - id: AGE-002-optional-check-in-review
+    name: In Review preserva a sessão e mantém a conta ativa sem selo
+    given:
+      - account_status: active
+      - onboarding_complete: true
+      - provider: didit
+      - session_kind: user
+      - current_provider_session_exists: true
+      - workflow_state: published
+      - document_verification: approved
+      - minimum_age_requirement_met: true
+      - passive_liveness: approved
+      - passive_liveness_method: PASSIVE
+      - face_match: In Review
+      - provider_state: In Review
+    when:
+      - authoritative_decision_retrieved_by_backend: true
+      - create_another_age_verification_session_requested: true
+    then:
+      - account_status: active
+      - age_verification_status: pending_review
+      - current_provider_session_preserved: true
+      - provider_session_created_or_reopened: false
+      - partial_approval_accepted: false
+      - retry_available: false
+      - support_available: true
+      - discovery_visible: true
+      - conversations_allowed_subject_to_independent_rules: true
+      - verified_18_plus_badge_visible: false
+
+  - id: AGE-003-client-cannot-self-verify
+    name: Callback ou resultado forjado no Android não concede selo
+    given:
+      - account_status: active
+      - onboarding_complete: true
+      - didit_webhook_signature_v2_valid: false
+    when:
+      - android_claims_age_verified: true
+    then:
+      - account_status: active
+      - age_verification_status: not_started
+      - discovery_visible: true
+      - verified_18_plus_badge_visible: false
+      - server_authoritative: true
+
+  - id: AGE-004-minimal-retention
+    name: Matcher retém somente o resultado mínimo e Didit elimina evidências após um mês
+    given:
+      - provider: didit
+      - provider_state: Approved
+      - didit_data_retention_months: 1
+    when:
+      - persist_age_verification_result: true
+    then:
+      - over_18_stored: true
+      - provider_method_stored: true
+      - provider_reference_is_opaque: true
+      - workflow_id_and_version_stored: true
+      - raw_provider_payload_stored: false
+      - personally_identifiable_information_stored: false
+      - selfie_stored: false
+      - document_stored: false
+      - exact_birth_date_stored: false
+      - biometric_score_or_template_stored: false
+      - media_url_stored: false
+
+  - id: AGE-005-cancelled-remains-active
+    name: Cancelar a experiência hospedada mantém a conta ativa sem selo
+    given:
+      - account_status: active
+      - onboarding_complete: true
+      - age_verification_status: pending
+    when:
+      - provider_flow_cancelled: true
+      - app_return_deep_link_opened: true
+    then:
+      - account_status: active
+      - discovery_visible: true
+      - verified_18_plus_badge_visible: false
+      - retry_available: true
+
+  - id: AGE-006-replay-is-idempotent
+    name: Webhook repetido ou fora de ordem não rebaixa verificação concluída
+    given:
+      - account_status: active
+      - age_verification_status: verified
+    when:
+      - duplicate_complete_notification: true
+      - delayed_failure_notification: true
+    then:
+      - account_status: active
+      - age_verification_status: verified
+      - age_verified_audit_events: 1
+
+  - id: AGE-007a-suspension-wins
+    name: Suspensão prevalece sobre resultado Didit atrasado
+    given:
+      - account_status: suspended
+      - known_provider_session: true
+    when:
+      - provider_complete_notification: true
+    then:
+      - account_status: suspended
+      - discovery_visible: false
+      - conversations_allowed: false
+      - badge_visible_to_others: false
+
+  - id: AGE-007b-moderation-wins
+    name: Restrição de moderação prevalece sobre aprovação Didit atrasada
+    given:
+      - account_status: active
+      - moderation_restriction_active: true
+      - profile_moderation_visibility: hidden
+      - known_provider_session: true
+    when:
+      - provider_approved_notification: true
+      - authoritative_decision_retrieved_by_backend: true
+    then:
+      - account_status: active
+      - moderation_restriction_active: true
+      - discovery_visible: false
+      - badge_visible_to_others: false
+      - didit_result_overrides_moderation: false
+
+  - id: AGE-008-server-secrets-only
+    name: APK não contém credenciais do Didit
+    given:
+      - android_apk_built: true
+    when:
+      - inspect_apk_strings_and_build_config: true
+    then:
+      - didit_api_key_present: false
+      - didit_workflow_id_present: false
+      - didit_workflow_version_present: false
+      - didit_webhook_secret_present: false
+      - didit_environment_present: false
+      - service_role_key_present: false
+      - only_public_supabase_configuration_present: true
+
+  - id: AGE-009-workflow-or-environment-mismatch
+    name: Sessão de outro ambiente ou versão nunca concede selo
+    given:
+      - account_status: active
+      - authoritative_decision_retrieved_by_backend: true
+      - provider_state: Approved
+      - all_required_checks_approved: true
+      - workflow_or_environment_matches_configured: false
+    when:
+      - finalize_age_verification: true
+    then:
+      - account_status: active
+      - age_verification_status: unverified
+      - discovery_visible: true
+      - verified_18_plus_badge_visible: false
+      - security_event_recorded_without_pii: true
+
+  - id: AGE-010-free-capacity-exhausted
+    name: Franquia esgotada bloqueia só a sessão opcional
+    given:
+      - account_status: active
+      - didit_documented_free_checks_per_core_feature_per_month: 500
+      - workflow_required_core_features: 3
+      - commercial_terms_checked_for_current_release: true
+      - free_checks_remaining_for_a_required_core_feature: 0
+    when:
+      - create_age_verification_session: true
+    then:
+      - provider_session_created: false
+      - account_status: active
+      - discovery_visible: true
+      - verified_18_plus_badge_visible: false
+      - capacity_message_visible: true
+      - paid_overage_enabled_automatically: false
+      - future_free_tier_assumed: false
+
+  - id: AGE-011-stable-vendor-pseudonym
+    name: Vendor data estável por usuário é separado da referência única de tentativa
+    given:
+      - same_user_attempts: 2
+      - different_user_attempts: 1
+    when:
+      - create_didit_user_sessions: true
+    then:
+      - every_session_kind: user
+      - same_user_vendor_data_equal: true
+      - different_users_vendor_data_distinct: true
+      - attempt_references_all_unique: true
+      - attempt_reference_equals_vendor_data: false
+      - vendor_data_contains_direct_identifier_or_profile_data: false
+
+  - id: AGE-012-passive-method-required
+    name: Liveness diferente de PASSIVE não concede selo nem desativa a conta
+    given:
+      - account_status: active
+      - provider_state: Approved
+      - document_verification: approved
+      - minimum_age_requirement_met: true
+      - passive_liveness: approved
+      - passive_liveness_method: ACTIVE
+      - face_match: approved
+    when:
+      - authoritative_decision_retrieved_by_backend: true
+    then:
+      - account_status: active
+      - age_verification_status: unverified
+      - discovery_visible: true
+      - verified_18_plus_badge_visible: false
+      - required_passive_method_proven: false
+
+  - id: AGE-013-declined-stays-active
+    name: Falha final do Didit mantém a conta ativa como não verificada
+    given:
+      - account_status: active
+      - onboarding_complete: true
+      - provider_state: Declined
+    when:
+      - authoritative_decision_retrieved_by_backend: true
+    then:
+      - account_status: active
+      - age_verification_status: declined
+      - discovery_visible: true
+      - conversations_allowed_subject_to_independent_rules: true
+      - verified_18_plus_badge_visible: false
+
+  - id: PHOTO-001-any-allowed-image-pending
+    name: Qualquer imagem permitida entra privada e pendente
+    given:
+      - account_status: active
+      - uploaded_image_allowed_by_content_policy: true
+      - uploaded_image_contains_face: false
+    when:
+      - upload_profile_photo_version: true
+    then:
+      - photo_version_created: true
+      - photo_moderation_status: pending
+      - owner_can_preview_private_media: true
+      - third_party_media_visible: false
+      - third_party_placeholder: gray
+      - face_required_for_profile_photo: false
+      - automatic_classifier_required_by_contract: false
+
+  - id: PHOTO-002-approved-visible
+    name: Somente versão aprovada fica visível a terceiros
+    given:
+      - photo_moderation_status: pending
+      - authorized_moderation_decision: approved
+    when:
+      - apply_photo_moderation_decision: true
+    then:
+      - photo_moderation_status: approved
+      - third_party_media_visible: true
+      - third_party_placeholder_visible: false
+
+  - id: PHOTO-003-adult-private
+    name: Decisão adult mantém mídia privada e placeholder cinza
+    given:
+      - photo_moderation_status: pending
+      - authorized_moderation_decision: adult
+    when:
+      - apply_photo_moderation_decision: true
+    then:
+      - photo_moderation_status: adult
+      - third_party_media_visible: false
+      - third_party_placeholder: gray
+      - account_action_decided_by_independent_moderation_policy: true
+
+  - id: PHOTO-004-abusive-private
+    name: Decisão abusive mantém mídia privada e placeholder cinza
+    given:
+      - photo_moderation_status: pending
+      - authorized_moderation_decision: abusive
+    when:
+      - apply_photo_moderation_decision: true
+    then:
+      - photo_moderation_status: abusive
+      - third_party_media_visible: false
+      - third_party_placeholder: gray
+      - account_action_decided_by_independent_moderation_policy: true
+
+  - id: PHOTO-005-new-version-does-not-replace-approved
+    name: Nova versão não substitui imagem aprovada antes de nova moderação
+    given:
+      - current_photo_version: v1
+      - current_photo_status: approved
+      - current_photo_visible_to_third_parties: true
+    when:
+      - upload_new_photo_version: v2
+    then:
+      - new_photo_status: pending
+      - public_photo_version: v1
+      - new_photo_visible_to_third_parties: false
+      - new_photo_third_party_placeholder: gray
+      - replacement_requires_new_version_approved: true
+
+  - id: PHOTO-006-suspension-hides-approved-media
+    name: Suspensão ou restrição de moderação prevalece sobre foto aprovada
+    given:
+      - photo_moderation_status: approved
+      - account_status: suspended
+      - moderation_restriction_active: true
+    when:
+      - third_party_requests_profile: true
+    then:
+      - profile_visible_to_third_party: false
+      - approved_photo_visible_to_third_party: false
 
   - id: PROFILE-001-local-summary
     name: Perfil local exibe apenas dados fornecidos pelo usuário

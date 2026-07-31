@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.domain.profile.LocalProfileStore
@@ -22,6 +23,9 @@ class MatcherSmokeTest {
 
     @Before
     fun resetLocalProfile() {
+        composeRule.activityRule.scenario.onActivity {
+            it.intent.putExtra(MainActivity.ForceDemoExtra, true)
+        }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.getSharedPreferences(LocalProfileStore.PREFS_NAME, 0)
             .edit()
@@ -38,13 +42,34 @@ class MatcherSmokeTest {
     }
 
     @Test
-    fun firstChatRequestConsumesOneFreeOpening() {
+    fun firstMessageOpensActiveConversationAndConsumesOneOpening() {
         completeOnboarding()
         composeRule.onNodeWithTag("profile-maya").performClick()
+        composeRule.onNodeWithTag("profile-detail-maya").assertIsDisplayed()
+        composeRule.onNodeWithTag("start-chat-maya").performScrollTo().performClick()
         composeRule.onNodeWithTag("chat-message-input").performTextInput("Oi, tudo bem?")
-        composeRule.onNodeWithTag("send-chat-request").performClick()
+        composeRule.onNodeWithTag("send-first-message").performClick()
 
+        composeRule.onNodeWithTag("conversation-detail").assertIsDisplayed()
+        composeRule.onNodeWithText("Oi, tudo bem?").assertIsDisplayed()
+        composeRule.onNodeWithTag("back-conversation").performClick()
+        composeRule.onNodeWithTag("conversations-screen").assertIsDisplayed()
         composeRule.onNodeWithText("4 chats").assertIsDisplayed()
+        composeRule.onNodeWithTag("active-maya").assertIsDisplayed()
+    }
+
+    @Test
+    fun incomingFirstMessageIsActiveWithoutAcceptance() {
+        completeOnboarding()
+        composeRule.onNodeWithTag("tab-conversations").performClick()
+        composeRule.onNodeWithTag("active-sam").assertIsDisplayed().performClick()
+
+        composeRule.onNodeWithTag("conversation-detail").assertIsDisplayed()
+        composeRule.onNodeWithText("Oi! Curti sua bio. Quer conversar?").assertIsDisplayed()
+        composeRule.onNodeWithTag("active-message-input").performTextInput("Que bom falar com você")
+        composeRule.onNodeWithTag("send-active-message").performClick()
+
+        composeRule.onNodeWithText("Que bom falar com você").assertIsDisplayed()
     }
 
     @Test

@@ -12,3 +12,10 @@ local.properties
 
 # Local installer/session artifacts
 inst_user_settings.tmp
+
+# Supabase local state and secrets
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/

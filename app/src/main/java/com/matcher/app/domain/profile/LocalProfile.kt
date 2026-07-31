@@ -1,6 +1,7 @@
 package com.matcher.app.domain.profile
 
 import android.content.Context
+import androidx.core.content.edit
 import java.time.Year
 
 data class LocalProfile(
@@ -48,11 +49,11 @@ class LocalProfileStore(context: Context) {
     }
 
     fun save(profile: LocalProfile) {
-        preferences.edit()
-            .putString(DISPLAY_NAME, profile.displayName.trim())
-            .putInt(BIRTH_YEAR, profile.birthYear)
-            .putString(BIO, profile.bio.trim())
-            .putString(INTENT, profile.intent.trim())
-            .apply()
+        preferences.edit {
+            putString(DISPLAY_NAME, profile.displayName.trim())
+            putInt(BIRTH_YEAR, profile.birthYear)
+            putString(BIO, profile.bio.trim())
+            putString(INTENT, profile.intent.trim())
+        }
     }
 }

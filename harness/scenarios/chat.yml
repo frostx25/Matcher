@@ -1,30 +1,31 @@
-version: 1
+version: 3
 domain: direct-chat
 
 scenarios:
   - id: CHAT-001-free-quota
-    name: Free abre cinco novas conversas
+    name: Free abre conversa ativa imediatamente
     given:
       - user: user-free
-      - quota_new_chat_requests: 5
+      - quota_new_conversations: 5
       - recipient: user-target-01
     when:
       - send_first_message: "Oi, tudo bem?"
     then:
-      - create_chat_request: true
-      - quota_new_chat_requests: 4
-      - recipient_state: pending
+      - create_active_conversation: true
+      - first_message_delivered: true
+      - quota_new_conversations: 4
+      - recipient_acceptance_required: false
 
   - id: CHAT-002-sixth-blocked
     name: Sexta abertura do Free é bloqueada
     given:
       - user: user-free
-      - quota_new_chat_requests: 0
+      - quota_new_conversations: 0
       - recipient: user-target-06
     when:
       - send_first_message: "Olá"
     then:
-      - create_chat_request: false
+      - create_active_conversation: false
       - error: CHAT_QUOTA_EXHAUSTED
       - quota_error_visible: true
       - preserve_existing_conversations: true
@@ -33,30 +34,33 @@ scenarios:
     name: Mensagem em conversa ativa não consome nova abertura
     given:
       - user: user-free
-      - quota_new_chat_requests: 0
+      - quota_new_conversations: 0
       - conversation_state: active
     when:
       - send_message: "Continuando nossa conversa"
     then:
       - message_delivered: true
-      - quota_new_chat_requests: 0
+      - quota_new_conversations: 0
 
-  - id: CHAT-004-recipient-control
-    name: Destinatário controla solicitação
+  - id: CHAT-004-no-acceptance
+    name: Primeiro envio dispensa aceite do destinatário
     given:
-      - chat_request_state: pending
+      - conversation_between_users: false
+      - quota_new_conversations: 5
     when:
-      - recipient_action: ignore
+      - sender_sends_first_message: true
     then:
-      - conversation_state: ignored
-      - sender_can_continue_sending: false
+      - conversation_state: active
+      - visible_to_sender: true
+      - visible_to_recipient: true
+      - recipient_acceptance_required: false
 
   - id: CHAT-005-block
     name: Bloqueio interrompe contato
     given:
       - conversation_state: active
     when:
-      - recipient_action: block
+      - participant_action: block
     then:
       - conversation_visible_to_both: false
       - new_messages_allowed: false
@@ -66,26 +70,103 @@ scenarios:
     name: Quota não sofre corrida concorrente
     given:
       - user: user-free
-      - quota_new_chat_requests: 1
+      - quota_new_conversations: 1
       - two_concurrent_first_messages: true
     when:
-      - submit_both_requests: true
+      - submit_both_openings: true
     then:
-      - successful_chat_requests: 1
-      - rejected_requests: 1
-      - quota_new_chat_requests: 0
+      - successful_conversation_openings: 1
+      - rejected_openings: 1
+      - quota_new_conversations: 0
 
   - id: CHAT-007-client-boundary
     name: Cliente consome a decisão de quota sem decrementar sozinho
     given:
-      - adapter: fake-authoritative-chat-repository
+      - adapter: authoritative-chat-repository
       - user: user-free
-      - quota_new_chat_requests: 0
+      - quota_new_conversations: 0
       - recipient: user-target-07
     when:
       - send_first_message: "Olá"
     then:
-      - create_chat_request: false
+      - create_active_conversation: false
       - error: CHAT_QUOTA_EXHAUSTED
-      - quota_new_chat_requests: 0
+      - quota_new_conversations: 0
       - quota_error_visible: true
+
+  - id: CHAT-008-report-active
+    name: Denúncia de conversa cria caso de moderação
+    given:
+      - conversation_state: active
+      - current_user_is_participant: true
+    when:
+      - participant_action: report
+      - report_reason: SPAM
+      - report_details: "Conteúdo sintético para teste"
+    then:
+      - moderation_case_created: true
+      - reported_user_can_continue_sending: false
+      - sensitive_content_logged: false
+
+  - id: CHAT-009-blocked-opening
+    name: Relação bloqueada impede nova abertura
+    given:
+      - blocker: user-target-09
+      - blocked: user-free
+      - conversation_between_users: false
+    when:
+      - blocked_user_sends_first_message: true
+    then:
+      - create_active_conversation: false
+      - error: CHAT_BLOCKED
+      - quota_consumed: false
+
+  - id: CHAT-010-existing-pair
+    name: Par existente não cria segunda conversa
+    given:
+      - conversation_state: active
+      - quota_new_conversations: 4
+    when:
+      - send_message_from_profile: "Outra mensagem"
+    then:
+      - duplicate_conversation_created: false
+      - message_delivered_to_existing_conversation: true
+      - quota_new_conversations: 4
+
+  - id: CHAT-011-active-message
+    name: Conversa direta permite resposta sem consumir quota
+    given:
+      - conversation_state: active
+      - quota_new_conversations: 4
+    when:
+      - send_message: "Que bom falar com você"
+    then:
+      - message_delivered: true
+      - message_visible_in_conversation: true
+      - quota_new_conversations: 4
+
+  - id: CHAT-012-age-gate
+    name: Conta sem aferição não lê nem envia em conversa existente
+    given:
+      - conversation_state: active
+      - account_status: pending
+      - age_verification_status: not_started
+    when:
+      - list_conversations: true
+      - send_message: "Tentativa sem verificação"
+    then:
+      - conversations_returned: 0
+      - message_delivered: false
+      - error: ACCOUNT_NOT_ACTIVE
+
+  - id: CHAT-013-both-participants-active
+    name: Conversa só permanece acessível quando os dois participantes estão ativos
+    given:
+      - conversation_state: active
+      - sender_age_verification_status: verified
+      - recipient_account_status: suspended
+    when:
+      - sender_sends_message: true
+    then:
+      - message_delivered: false
+      - conversation_visible_to_sender: false

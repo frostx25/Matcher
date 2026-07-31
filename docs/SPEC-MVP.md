@@ -1,7 +1,7 @@
 # Matcher — especificação do MVP
 
 Status: rascunho executável  
-Versão: 0.1  
+Versão: 1.2
 Plataforma: Android  
 Mercado inicial: Brasil, uma região metropolitana
 
@@ -12,33 +12,69 @@ Permitir que pessoas adultas descubram perfis próximos e iniciem conversas dire
 ## 2. Atores
 
 - **Usuário:** cria perfil, descobre pessoas, inicia conversas e controla sua visibilidade.
-- **Destinatário:** recebe uma solicitação de conversa e decide aceitar, ignorar, bloquear ou denunciar.
+- **Destinatário:** recebe a primeira mensagem em uma conversa já ativa e pode responder, bloquear ou denunciar.
+- **Destinatário de álbum:** recebe do titular uma autorização individual e revogável para abrir um álbum privado, podendo denunciar seu conteúdo.
 - **Moderador:** revisa denúncias, conteúdo e contas sinalizadas.
 - **Serviço de entitlement:** confirma o plano Free, Extra ou Pro no servidor.
+
+- **Didit:** oferece, depois do onboarding e por iniciativa da pessoa na aba Perfil, um workflow opcional de documento brasileiro, prova de vida passiva e correspondência facial 1:1; o backend usa somente a decisão mínima necessária para conceder o selo 18+ verificado.
 
 ## 3. Escopo funcional
 
 ### 3.1 Conta e idade
 
-- Cadastro por e-mail/OTP na primeira versão.
-- Confirmação de maioridade e aceitação dos Termos de Uso/Política de Privacidade antes de publicar perfil.
+- Cadastro por e-mail/OTP na primeira versão. No Android de desenvolvimento, o provedor envia um código numérico de seis dígitos; a pessoa pode consultar o e-mail em outro aparelho e o app valida automaticamente assim que o sexto dígito é informado. A validação confirma ou cria a conta e estabelece sua sessão autenticada.
+- O código de autenticação é validado pelo Supabase Auth, possui expiração e nunca é registrado em logs, fixtures ou mensagens de erro.
+- O APK recebe apenas a URL do projeto e a chave publicável. Chave secreta, `service_role`, senha do banco e token de sessão não fazem parte da configuração do cliente.
+- O onboarding básico exige autodeclaração de maioridade e aceite dos Termos de Uso/Política de Privacidade. Ele recebe somente o ano de nascimento, valida no servidor a declaração 18+ e registra a versão aceita dos documentos legais.
+- O onboarding também apresenta identidade de gênero e preferência de descoberta como escolhas distintas. `gender_identity_ids` contém uma ou mais opções de um catálogo versionado, incluindo autodescrição e “prefiro não informar”; esta última é exclusiva. `looking_for_gender_ids` é uma seleção privada de uma ou mais opções do mesmo catálogo ou o valor exclusivo “todas as pessoas”.
+- Autodescrição é texto fornecido pela pessoa e nunca é inferida. A identidade pode ser alterada no Perfil e possui controle de visibilidade; a preferência pode ser alterada no Perfil ou na Descoberta, não aparece para terceiros e nunca é incluída em payload público.
+- Ao concluir o onboarding básico, a conta e o perfil ficam ativos e utilizáveis como **não verificados**. Descoberta e conversa não dependem do Didit, mas continuam sujeitas a suspensão, bloqueios, moderação, quota e às regras de visibilidade de conteúdo.
+- Depois, na aba Perfil, a pessoa pode iniciar voluntariamente a verificação Didit. O workflow publicado aplica, na mesma sessão, autenticidade e idade mínima de 18 anos em documento brasileiro, prova de vida com método `PASSIVE` e correspondência 1:1 entre o retrato do documento e a captura ao vivo.
+- Os três controles são obrigatórios apenas para conceder o selo **18+ verificado**. `In Review` preserva a mesma sessão corrente e impede criar ou reabrir outra enquanto houver revisão; recusa, erro, cancelamento, controle ausente, workflow ou versão divergente não concedem o selo, mas também não desativam nem ocultam automaticamente a conta já ativa.
+- O backend cria a sessão hospedada somente com o workflow KYC publicado, envia como `vendor_data` um pseudônimo opaco estável por usuário e mantém uma referência opaca única de tentativa separada. A resposta de criação v3 pode omitir `session_kind`; por isso a notificação assinada é apenas um gatilho e o backend consulta a decisão autoritativa, onde exige `session_kind = user`, além de conferir ambiente, sessão, referências, `workflow_id`, `workflow_version` e todos os controles antes de marcar `over_18` e conceder o selo. Resultado, URL, deep link ou parâmetro informado pelo APK nunca concede verificação.
+- O Matcher persiste apenas status normalizado, método/nível de garantia, instante da decisão, versão da política, workflow e referência técnica opaca. Respostas do Didit são filtradas por allowlist e não podem ser persistidas ou registradas em bruto; selfie, documento, nome civil, número documental, CPF, data de nascimento completa, idade extraída, URL de mídia, score ou template biométrico não são armazenados pelo app ou Supabase.
+- A retenção de evidências no Didit fica configurada em um mês, o mínimo operacional adotado, sem cópia para o Matcher. Qualquer aumento exige revisão de privacidade e segurança.
+- Na data desta especificação, o Didit informa 500 verificações gratuitas mensais para cada recurso central. O fluxo usa ID Verification, Passive Liveness e Face Match, então 500 fluxos completos é apenas um máximo teórico sem repetições; consumo real, franquia e preços devem ser reconfirmados no painel e nos termos vigentes, sem promessa de gratuidade futura.
+- O selo resultante comunica **18+ verificado**, não identidade verificada nem idade exata verificada. O ano do perfil continua declarado enquanto não houver um método separado que confirme sua correspondência.
+- Suspensão, exclusão e restrições de moderação prevalecem sobre qualquer resultado do Didit: uma decisão aprovada nunca reativa, republica ou libera uma conta moderada.
 - Sessão revogável, recuperação de conta e logout de todos os dispositivos.
 - Exclusão de conta no app e solicitação de exclusão por página web.
 
-No protótipo local, o onboarding usa ano de nascimento, confirmação explícita de 18+ e aceite separado dos Termos/Política. O perfil só é salvo e a descoberta só fica disponível depois dessas confirmações. Isso é uma barreira de fluxo para desenvolvimento; não substitui a verificação robusta exigida para produção.
+No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano de nascimento, confirmação explícita de 18+ e aceite separado dos Termos/Política. Depois da validação pelo servidor, o perfil fica ativo e utilizável sem selo; a verificação Didit é uma ação opcional posterior no Perfil. Como o ano isolado não informa se o aniversário já ocorreu, ele continua sendo um dado declarado e não é convertido em selo de verificação.
 
 ### 3.2 Perfil
 
-- Nome de exibição, idade derivada da data de nascimento, bio e até cinco fotos.
+- Nome de exibição, idade declarada a partir do ano de nascimento, bio e até cinco fotos.
 - Identidade de gênero, pronomes, orientação, intenção e tipo de relacionamento como campos separados.
 - Cada campo possui visibilidade configurável; o usuário pode preferir não informar.
-- Fotos e bio passam pelas regras de conteúdo antes de ficarem públicas.
+- A foto pode ser qualquer imagem permitida pela política de conteúdo e não precisa representar um rosto. A mídia do Didit nunca vira foto de perfil.
+- Cada versão de foto é privada enquanto estiver `pending`; terceiros recebem um placeholder cinza. Somente uma decisão `approved` torna aquela versão visível a terceiros. Decisões `adult` ou `abusive` mantêm a versão privada e o placeholder.
+- Uma nova versão fica em moderação separada e não substitui a versão aprovada atual. A troca pública ocorre somente depois de a nova versão receber `approved`; se permanecer `pending` ou receber `adult`/`abusive`, a versão aprovada anterior continua visível.
+- O contrato exige estados e efeitos consistentes de moderação, mas não pressupõe nem promete classificação automática.
+
+#### 3.2.1 Álbum privado
+
+- Cada conta ativa pode possuir no máximo um álbum privado com até dez imagens. O álbum, seus metadados e suas imagens não aparecem na grade, na busca, no perfil público, nas fotos públicas nem em prévias de conversa.
+- Imagens válidas ficam `available` imediatamente após o upload, sem fila de aprovação prévia. Este tratamento é distinto do versionamento moderado das fotos públicas de perfil e uma imagem privada nunca se torna pública automaticamente.
+- “Sem aprovação prévia” não significa “sem regras”: antes do primeiro upload a pessoa aceita a Política de Conteúdo; menores, conteúdo não consensual, exploração, violência proibida, atividade ilegal e demais violações continuam proibidos. Destinatários podem denunciar e moderadores podem ocultar ou remover item, álbum ou conta.
+- Somente o titular e uma conta ativa com concessão individual vigente podem listar metadados ou baixar uma imagem. A autorização é decidida no servidor em cada listagem/download; objetos não usam URL pública ou permanente e o cliente não mantém cópia em cache persistente.
+- O titular pode conceder e revogar acesso por destinatário. A revogação impede imediatamente novas listagens e downloads e remove o conteúdo já carregado da interface; cópias já capturadas fora do controle do app não podem ser recuperadas.
+- Bloquear uma conta revoga permanentemente todas as concessões de álbum entre as duas contas, em ambas as direções. Desbloquear não restaura acesso; somente uma nova concessão explícita pode fazê-lo.
+- Denunciar um item ou álbum abre um caso de moderação auditável, oculta o álbum para quem denunciou e encerra sua concessão. A evidência preservada segue retenção mínima e acesso restrito; conteúdo sensível não é escrito em logs.
+- Excluir uma imagem, o álbum ou a conta remove metadados, concessões e objetos de Storage de modo idempotente. Falha parcial entra em rotina de limpeza sem tornar o objeto acessível.
+- Antes de abrir o álbum, o destinatário vê uma tela bloqueada e um aviso de conteúdo privado/capturas. O app não promete impedir screenshots ou fotografias feitas com outro aparelho.
+- Esta versão aceita somente imagens. Vídeo, concessões com expiração e visualização única ficam fora do MVP.
 
 ### 3.3 Descoberta
 
 - Grade paginada de perfis próximos.
 - Ordenação por proximidade aproximada, atividade recente e compatibilidade com preferências declaradas.
 - Filtros básicos por idade, identidade, intenção, tipo de relacionamento e verificação.
+- A preferência `looking_for_gender_ids` é privada e aplicada pelo servidor antes da paginação. “Todas as pessoas” não filtra por gênero; uma seleção específica inclui somente perfis cuja identidade publicada possua interseção com a seleção.
+- Se a identidade de um perfil estiver oculta ou marcada como “prefiro não informar”, uma preferência específica não pode usá-la para incluir esse perfil, evitando revelar indiretamente um dado oculto. A preferência “todas as pessoas” pode incluir o perfil sem expor identidade.
+- Perfis criados antes desta versão recebem, sem inferência, identidade “prefiro não informar” oculta e preferência privada “todas as pessoas”. Nome, bio, foto, conversa e verificação nunca são usados para deduzir gênero.
+- Alterar a preferência invalida a página/cursor anterior e a próxima consulta reinicia a descoberta com a decisão atual do servidor. O cliente não filtra um conjunto mais amplo como substituto da regra autoritativa.
 - Distância mostrada em faixas, nunca em metros exatos.
 - Funciona com localização escolhida por região e com localização aproximada do Android.
 - Pausar descoberta, ocultar distância e não aparecer em exploração.
@@ -46,10 +82,10 @@ No protótipo local, o onboarding usa ano de nascimento, confirmação explícit
 ### 3.4 Conversa direta
 
 - O botão principal do perfil é **Conversar**.
-- O primeiro envio cria uma `chat_request` e consome uma abertura de conversa.
-- O destinatário recebe uma solicitação, não um chat irreversível.
-- O destinatário pode aceitar, ignorar, bloquear ou denunciar.
-- Quando aceita ou responde, a conversa fica ativa.
+- O primeiro envio cria uma conversa ativa e sua primeira mensagem na mesma transação, consumindo uma abertura.
+- Não existe solicitação pendente, aceite prévio ou match obrigatório.
+- O destinatário pode responder, bloquear ou denunciar desde a primeira mensagem.
+- Bloquear interrompe novas mensagens e remove a visibilidade entre as contas; denunciar também cria um caso de moderação auditável.
 - Texto e fotos são suportados; mídia efêmera e chamadas ficam fora do MVP.
 - Mensagens em conversas já ativas não consomem novas aberturas.
 
@@ -69,6 +105,8 @@ No protótipo local, o onboarding usa ano de nascimento, confirmação explícit
 - Limites por usuário, dispositivo, IP, perfil destinatário e intervalo de tempo.
 - Detecção de spam, mensagens repetitivas, criação em massa e evasão de banimento.
 - Painel de moderação com fila, evidência, histórico e auditoria.
+- Políticas de acesso testadas para metadados e objetos do álbum privado, incluindo tentativa por usuário sem concessão, concessão revogada, bloqueio, suspensão e exclusão.
+- Nenhum log, evento analítico ou notificação contém preferência de gênero, nome de objeto privado, imagem, URL de mídia ou texto livre de denúncia.
 
 ## 4. Requisitos não funcionais
 
@@ -78,6 +116,7 @@ No protótipo local, o onboarding usa ano de nascimento, confirmação explícit
 - Primeiro conjunto de perfis: meta de até 1,5 s após resposta da API.
 - Grade sem retornar todos os perfis; usar paginação por cursor e índice geográfico.
 - Imagens com miniaturas, cache e carregamento sob demanda.
+- Fotos públicas podem usar cache conforme seu estado de moderação; imagens de álbum privado são buscadas sob autenticação, não usam cache persistente e são descartadas da interface quando o acesso deixa de ser válido.
 - Mensagens com confirmação visual imediata e confirmação do servidor em até 500 ms em rede normal.
 - HTTPS em todas as comunicações e controle de acesso por função.
 - Não registrar no log conteúdo de mensagens, coordenadas exatas, documentos de identidade ou orientação sexual.
@@ -90,11 +129,11 @@ Uma nova conversa só pode ser criada se a conta estiver ativa, o destinatário 
 
 ### BR-CHAT-02 — consumo atômico
 
-Criar `chat_request` e consumir uma abertura devem ocorrer na mesma transação. Duas requisições simultâneas não podem gastar uma única abertura duas vezes nem ultrapassar o limite.
+Criar a conversa, registrar sua primeira mensagem e consumir uma abertura devem ocorrer na mesma transação. Duas requisições simultâneas não podem gastar uma única abertura duas vezes nem ultrapassar o limite.
 
-### BR-CHAT-03 — destinatário no controle
+### BR-CHAT-03 — contato direto com proteção
 
-O remetente não pode forçar uma conversa ativa. Ignorar não notifica o remetente com detalhes; bloquear e denunciar encerram o acesso conforme a política de segurança.
+A primeira mensagem torna a conversa ativa sem aceite prévio. O destinatário pode bloquear ou denunciar a qualquer momento; bloquear encerra o acesso nos dois sentidos e denunciar cria um caso de moderação sem expor detalhes internos ao remetente.
 
 ### BR-CHAT-04 — plano pago não remove segurança
 
@@ -108,37 +147,129 @@ O backend usa região/índice espacial reduzido para descoberta. Latitude e long
 
 Excluir conta remove ou anonimiza dados associados conforme a política de retenção documentada, incluindo perfil, fotos, conversas e entitlements, salvo retenções justificadas para segurança ou obrigação legal.
 
+### BR-AGE-01 — ativação pelo onboarding básico
+
+Depois que o e-mail confirma ou cria a conta, o backend ativa o perfil para uso ao validar ano de nascimento compatível, autodeclaração 18+ e aceite da versão vigente dos Termos/Política. A ausência de verificação Didit não bloqueia descoberta nem conversa e deve ser representada apenas como ausência do selo.
+
+### BR-AGE-02 — selo opcional e minimização
+
+O backend só concede **18+ verificado** após decisão final `Approved` do workflow Didit publicado e configurado, com documento brasileiro, regra de idade mínima de 18 anos, prova de vida aprovada com `method = PASSIVE` e correspondência facial aprovados. O Matcher não persiste nem registra identificador direto ou PII retornada pelo Didit, documento, mídia, score ou biometria; a retenção de evidências fica limitada a um mês no Didit. `In Review` mantém revisão pendente na sessão corrente e bloqueia outra sessão; demais resultados deixam a conta ativa e sem selo.
+
+### BR-AGE-03 — autoridade, ambiente e orçamento
+
+Webhook, callback e deep link nunca são prova de verificação. O selo exige sessão de tipo `user`, `vendor_data` pseudônimo estável por usuário, referência única de tentativa separada, consulta servidor-servidor, vínculo da sessão à conta, conferência exata de ambiente e versão do workflow e finalização idempotente. Sandbox nunca concede selo live. A franquia divulgada de 500 verificações mensais por recurso central é monitorada e reconfirmada periodicamente; não é garantia permanente nem autoriza contratação automática de excedente. Falta de capacidade afeta apenas o início da verificação opcional.
+
+### BR-AGE-04 — moderação prevalece
+
+Uma aprovação Didit altera somente o estado do selo. Conta suspensa, excluída ou limitada pela moderação permanece nessa condição, e o selo não pode reativar acesso, republicar perfil nem contornar uma restrição.
+
+### BR-PHOTO-01 — visibilidade por versão
+
+Cada versão de foto possui decisão própria. `pending`, `adult` e `abusive` permanecem privadas e são representadas a terceiros por placeholder cinza; somente `approved` pode ser entregue a terceiros. A decisão descreve o efeito do processo de moderação e não implica que exista classificação automática.
+
+### BR-PHOTO-02 — substituição segura
+
+Ao enviar uma nova versão, a versão aprovada atual permanece pública até a nova versão também receber `approved`. Estado pendente ou decisão `adult`/`abusive` da nova versão não remove nem substitui a imagem aprovada anterior, salvo uma ação de moderação independente sobre a versão anterior ou sobre a conta.
+
+### BR-GENDER-01 — identidade separada da preferência
+
+Identidade de gênero pertence ao perfil, pode conter múltiplas opções/autodescrição e possui visibilidade controlada. A preferência “quem quero encontrar” é uma seleção privada independente, não é retornada a terceiros e não pode ser inferida ou preenchida a partir de qualquer conteúdo do perfil.
+
+### BR-GENDER-02 — descoberta autoritativa e sem inferência
+
+O servidor aplica a preferência de gênero antes da paginação. Uma seleção específica combina por interseção apenas com identidades publicadas; identidade oculta ou “prefiro não informar” não participa dessa filtragem. “Todas as pessoas” não filtra por gênero. Perfis legados recebem identidade oculta “prefiro não informar” e preferência “todas as pessoas”, sem inferência.
+
+### BR-ALBUM-01 — privado por padrão
+
+Existe no máximo um álbum privado por titular, com até dez imagens. Álbum, itens e objetos não são públicos nem aparecem em descoberta, perfil público ou conversa; somente titular ou destinatário com concessão individual vigente pode listar ou ler seu conteúdo.
+
+### BR-ALBUM-02 — disponibilidade sem aprovação prévia
+
+Uma imagem válida fica disponível no álbum imediatamente, sem estado `pending` ou aprovação prévia. Ela continua sujeita à Política de Conteúdo, denúncia e decisão de moderação, que pode ocultar/remover item, álbum ou conta. O conteúdo não pode ser promovido automaticamente a foto pública.
+
+### BR-ALBUM-03 — autorização, revogação e bloqueio
+
+Toda listagem ou leitura revalida no servidor a conta, o bloqueio e a concessão atuais. Revogar encerra o acesso individual; bloquear revoga permanentemente concessões nos dois sentidos, e desbloquear não as recria. Objetos não possuem URL pública ou permanente.
+
+### BR-ALBUM-04 — denúncia, exclusão e captura
+
+Denunciar oculta o álbum para o denunciante, encerra sua concessão e cria caso auditável de moderação. Excluir item, álbum ou conta limpa metadados, concessões e Storage de modo idempotente. A interface alerta que capturas externas não podem ser impedidas e nunca promete recuperar cópias já obtidas.
+
+### BR-ALBUM-05 — limite desta versão
+
+O limite de um álbum e dez imagens é imposto atomicamente no servidor, inclusive sob uploads concorrentes. Vídeo, acesso com expiração e visualização única não fazem parte desta versão.
+
 ## 6. Critérios de aceitação do MVP
 
 - **AC-ONB-01:** usuário menor de 18 anos não consegue concluir o onboarding adulto.
-- **AC-ONB-02:** sem aceite dos termos, o perfil não fica público.
+- **AC-ONB-02:** sem aceite dos termos, o onboarding não ativa o perfil.
 - **AC-ONB-03:** ano de nascimento incompatível com 18+ bloqueia o avanço e não salva perfil.
-- **AC-ONB-04:** com maioridade, termos aceitos e nome preenchido, o perfil local é salvo e a aba Perfil exibe os dados sintéticos.
+- **AC-ONB-04:** com maioridade declarada, termos aceitos, nome, identidade de gênero ou “prefiro não informar” e preferência de descoberta preenchidos, o perfil fica ativo e utilizável como não verificado, inclusive para descoberta e conversa quando nenhuma restrição independente se aplica.
+- **AC-GENDER-01:** identidade e preferência aparecem como controles separados no onboarding e podem ser alteradas depois; a preferência aceita múltiplas opções ou “todas as pessoas”, que é exclusiva.
+- **AC-GENDER-02:** nenhum perfil, resposta pública, log ou telemetria revela a preferência de gênero de outra pessoa.
+- **AC-AGE-01:** a pessoa pode iniciar a verificação Didit opcional depois na aba Perfil; não iniciá-la não reduz o acesso de uma conta ativa.
+- **AC-AGE-02:** somente a decisão final do Didit confirmada pelo backend, em sessão `user` do workflow publicado configurado, com documento brasileiro 18+, prova de vida aprovada com método `PASSIVE` e correspondência facial aprovada, concede o selo **18+ verificado**.
+- **AC-AGE-03:** `In Review` mantém revisão pendente e a sessão corrente, sem criar ou reabrir outra sessão; controle ausente, inconclusivo ou recusado não concede aprovação parcial nem desativa a conta.
+- **AC-AGE-04:** forjar no Android um resultado, callback ou URL de sucesso não concede selo nem altera o acesso da conta.
+- **AC-AGE-05:** tabelas, logs e auditoria do Matcher não contêm payload bruto, nome civil, número documental, selfie, documento, data completa, idade extraída, URL de mídia, score ou template biométrico; o Didit retém as evidências por um mês.
+- **AC-AGE-06:** sessão de outro ambiente, workflow ou versão não concede selo; indisponibilidade de capacidade bloqueia somente novas sessões Didit e mantém a conta ativa como não verificada.
+- **AC-AGE-07:** tentativas do mesmo usuário usam o mesmo `vendor_data` pseudônimo, usuários diferentes usam valores distintos e cada tentativa possui referência única separada; nenhum valor contém identificador direto.
+- **AC-AGE-08:** aprovação atrasada nunca reativa uma conta suspensa, excluída ou limitada pela moderação.
+- **AC-PHOTO-01:** qualquer imagem permitida pode ser enviada; enquanto sua versão está `pending`, ou após decisão `adult`/`abusive`, somente o titular pode acessar a mídia e terceiros recebem placeholder cinza.
+- **AC-PHOTO-02:** somente a versão `approved` é visível a terceiros, sem depender de o arquivo mostrar um rosto.
+- **AC-PHOTO-03:** uma nova versão pendente ou não aprovada não substitui a versão aprovada atual; a troca só ocorre quando a nova versão também é aprovada.
+- **AC-PHOTO-04:** os testes validam estados e visibilidade sem pressupor ou prometer que a decisão de moderação seja automatizada.
+- **AC-ALBUM-01:** titular cria somente um álbum, envia até dez imagens e consegue abri-las imediatamente sem aprovação prévia; a décima primeira é recusada pelo servidor mesmo sob concorrência.
+- **AC-ALBUM-02:** conta sem concessão não lista metadados nem lê bytes; conceder acesso a uma pessoa não libera para nenhuma outra.
+- **AC-ALBUM-03:** revogar acesso impede novas listagens/downloads e remove o conteúdo da tela do destinatário, sem afetar concessões de outras pessoas.
+- **AC-ALBUM-04:** bloquear revoga concessões nos dois sentidos e desbloquear não restaura nenhuma delas.
+- **AC-ALBUM-05:** denunciar encerra o acesso do denunciante, oculta o conteúdo para ele e cria caso de moderação; uma remoção por moderador impede leitura por titular e destinatários conforme a decisão.
+- **AC-ALBUM-06:** excluir item, álbum ou conta não deixa objeto legível nem concessão órfã; repetição da limpeza produz o mesmo resultado.
+- **AC-ALBUM-07:** álbum e miniaturas não aparecem em descoberta, perfil público ou conversa; uma imagem privada nunca vira foto pública automaticamente.
+- **AC-ALBUM-08:** antes de abrir, o destinatário vê aviso sobre conteúdo privado e possibilidade de captura; o fluxo não oferece vídeo, expiração nem visualização única.
+- **AC-AUTH-01:** informar e-mail e um código OTP válido cria a sessão no app; código inválido ou expirado não autentica.
+- **AC-AUTH-02:** o app aceita somente seis dígitos no campo OTP, inicia a validação automaticamente ao receber o sexto dígito e não persiste nem registra o código informado.
 - **AC-DISC-01:** a grade carrega em páginas e permite continuar rolando sem recarregar os primeiros itens.
 - **AC-DISC-02:** nenhuma tela mostra a distância exata ou coordenadas.
+- **AC-DISC-03:** preferência específica retorna, antes da paginação, somente perfis com identidade publicada compatível; alterar a preferência invalida o cursor anterior.
+- **AC-DISC-04:** identidade oculta ou “prefiro não informar” não é inferida por uma preferência específica; “todas as pessoas” preserva a descoberta sem expor o campo.
+- **AC-DISC-05:** perfil legado continua utilizável com identidade oculta “prefiro não informar” e preferência privada “todas as pessoas”, sem classificação automática.
 - **AC-CHAT-01:** tocar em Conversar permite escrever a primeira mensagem e mostra a quota antes do envio.
-- **AC-CHAT-02:** ao enviar, o destinatário vê aceitar, ignorar, bloquear e denunciar.
+- **AC-CHAT-02:** ao enviar a primeira mensagem, a conversa fica ativa para as duas contas sem aceite prévio, com bloquear e denunciar disponíveis.
 - **AC-CHAT-03:** uma conversa ativa permite várias mensagens sem consumir novas aberturas.
 - **AC-CHAT-04:** a sexta nova abertura no Free é bloqueada pelo servidor e oferece upgrade sem perder conversas existentes.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
+- **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.
 - **AC-BILL-01:** entitlement pago só é ativado após validação de compra no backend.
 - **AC-DATA-01:** usuário encontra exclusão de conta dentro do app e por link externo.
 
 ## 7. Fora do MVP
 
-Swipe, match obrigatório, chamadas, live, feed público, mapa com pinos, localização em segundo plano, IA de compatibilidade, perfis de casal completos, eventos, tradução automática e anúncios.
+Swipe, match obrigatório, chamadas, live, feed público, mapa com pinos, localização em segundo plano, IA de compatibilidade, perfis de casal completos, eventos, tradução automática, anúncios, vídeo em álbum privado, concessão com expiração e visualização única.
 
 ## 8. Contratos iniciais
 
 O primeiro contrato de API deve cobrir:
 
 - `POST /auth/session`
+- `POST /onboarding` (valida autodeclaração 18+, termos, identidade de gênero e preferência privada e ativa o perfil como não verificado)
+- `POST /age-verification/sessions` (opcional, iniciado no Perfil; cria uma sessão Didit `user`, com pseudônimo estável e referência única de tentativa separada)
+- `GET /age-verification/status`
+- `POST /age-verification/provider-callback` (webhook Didit servidor-servidor; a notificação é apenas gatilho e nunca concede selo pelo APK)
+- `POST /profile/photos` (cria uma nova versão privada em `pending`)
+- `GET /profiles/{id}/photos` (entrega mídia somente para versões `approved`; nos demais estados entrega placeholder a terceiros)
+- `PATCH /profile/gender` (altera identidade/autodescrição e sua visibilidade)
+- `PUT /profile/discovery-preferences` (substitui a preferência privada multi-seleção)
+- `POST /profile/private-album` (cria ou retorna o único álbum do titular)
+- `GET /profile/private-album` (lista o próprio álbum, itens e concessões vigentes)
+- `POST /profile/private-album/images` e `DELETE /profile/private-album/images/{id}`
+- `PUT /profile/private-album/grants/{recipient_id}` e `DELETE /profile/private-album/grants/{recipient_id}`
+- `GET /profiles/{owner_id}/private-album` (lista/baixa somente com concessão vigente)
+- `POST /profiles/{owner_id}/private-album/reports`
 - `GET /discovery?cursor=...`
 - `GET /profiles/{id}`
-- `POST /chat-requests`
-- `POST /chat-requests/{id}/accept`
-- `POST /chat-requests/{id}/ignore`
+- `POST /conversations` (cria conversa ativa com a primeira mensagem)
 - `POST /blocks`
 - `POST /reports`
 - `GET /conversations`
@@ -149,11 +280,29 @@ O primeiro contrato de API deve cobrir:
 
 Os nomes são provisórios; qualquer mudança deve atualizar esta spec e os cenários do harness.
 
-## 9. Fronteira do protótipo Android local
+Na fundação Supabase, `POST /conversations` é implementado pela RPC `start_conversation(recipient_id, first_message)`. Envio, bloqueio, denúncia e consulta de quota usam respectivamente `send_message`, `block_user`, `report_user` e `get_chat_quota`; escrita direta nas tabelas críticas não faz parte do contrato do cliente.
 
-Enquanto o backend ainda não estiver disponível, o app usa um repositório em memória com a mesma interface do futuro gateway remoto. Essa implementação existe somente para desenvolvimento e testes locais.
+`POST /onboarding` é implementado pela RPC `complete_onboarding`, que recebe ano, nome, bio, intenção, região, consentimento, `gender_identity_ids`, autodescrição/visibilidade e `looking_for_gender_ids`. A função valida sessão, ano de nascimento, maioridade declarada, consentimento e o catálogo versionado, ativa o perfil como não verificado e grava a preferência em área privada. A migração de perfis existentes usa “prefiro não informar” oculto e “todas as pessoas”; nunca infere valores. A leitura da descoberta usa uma RPC paginada que aplica a preferência atual no servidor e não retorna essa preferência.
 
-- A UI envia uma intenção de nova conversa e consome um resultado explícito: criada, já existente, bloqueada ou quota esgotada.
+As operações de álbum são autoritativas no servidor e usam um bucket privado. Criação, limite, inclusão de metadados, concessão, revogação, denúncia e remoção não podem ser decididos somente pelo cliente. Cada leitura autenticada verifica titular/concessão, bloqueios e estados das contas; URL pública ou permanente é proibida. A função de bloqueio também revoga concessões nos dois sentidos na mesma transação, e a rotina de exclusão limpa objetos e metadados de forma idempotente.
+
+Quando solicitada posteriormente no Perfil, a Edge Function `age-verification-session` cria uma sessão Didit `user` no workflow publicado, com `vendor_data` pseudônimo estável por usuário e referência única de tentativa; `age-verification-webhook` valida a assinatura, usa a notificação somente como gatilho, consulta a decisão diretamente no Didit e verifica todos os controles antes de conceder o selo. `In Review` preserva a sessão corrente e bloqueia apenas nova criação de sessão Didit. Falha, revisão ou ausência da verificação não desativa a conta nem bloqueia descoberta/conversa; suspensão e moderação continuam autoritativas. O contrato operacional detalhado está em [age-assurance.md](age-assurance.md).
+
+## 9. Fronteira Android local e remota
+
+O app mantém um repositório em memória para testes determinísticos e demonstração offline. O projeto de desenvolvimento remoto usa um gateway autenticado para Auth, PostgREST/RPC e Realtime; falhas remotas não podem cair silenciosamente no fake.
+
+- A UI envia uma intenção de nova conversa e consome um resultado explícito: criada e ativa, já existente, bloqueada ou quota esgotada.
 - O repositório fake aplica a quota de 5 aberturas e não permite que a tela altere o saldo diretamente.
+- A UI mostra apenas conversas ativas; não existem estados pendente, aceito ou ignorado.
+- A primeira mensagem cria a conversa ativa imediatamente. Bloquear e denunciar continuam disponíveis no perfil e dentro da conversa.
+- Denunciar cria um caso de moderação sintético e auditável no fake, sem registrar conteúdo sensível em logs.
+- Mensagens em conversas ativas são validadas pelo repositório e não alteram a quota de novas aberturas.
+- O protótipo inicia com uma conversa ativa sintética e determinística para permitir validar o fluxo sem backend.
 - Os testes usam IDs sintéticos (`user-free`, `user-target-*`) e não simulam dados reais.
-- A implementação de produção deverá substituir o fake por API autenticada com decremento atômico no servidor, sem alterar o contrato da UI.
+- A configuração Android contém somente URL e chave publicável do projeto de desenvolvimento. Senha de banco, chave secreta e `service_role` nunca entram no APK.
+- O gateway remoto usa apenas as RPCs autorizadas para onboarding e escritas críticas; a UI não decrementa quota nem decide estado de moderação.
+- Realtime apenas invalida/recarrega dados permitidos por RLS; a autorização continua sendo decidida pelo servidor.
+- Fixtures de foto modelam versões e decisões (`pending`, `approved`, `adult`, `abusive`) sem mídia real e sem assumir a existência de classificação automática.
+- O repositório de perfil mantém identidade e preferência como estados distintos; somente a identidade visível pode compor cartões públicos e a preferência nunca sai do estado privado do próprio usuário.
+- O álbum privado não reutiliza URL/cache das fotos públicas. O cliente limpa imagens carregadas ao perder concessão, receber bloqueio/moderação ou sair da tela, e sempre trata negação do servidor como estado autoritativo.

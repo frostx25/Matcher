@@ -1,0 +1,227 @@
+version: 1
+domain: private-photo-album
+
+scenarios:
+  - id: ALBUM-001-create-and-use-without-preapproval
+    name: Titular cria um álbum e usa imagens imediatamente
+    given:
+      - owner: user-free
+      - account_status: active
+      - private_album_exists: false
+      - content_policy_accepted: true
+      - uploaded_file_is_valid_image: true
+    when:
+      - create_private_album: true
+      - upload_private_album_image: synthetic-image-01
+    then:
+      - owner_private_album_count: 1
+      - album_item_count: 1
+      - item_status: available
+      - approval_required_before_owner_use: false
+      - owner_can_read_image: true
+      - public_profile_photo_created: false
+
+  - id: ALBUM-002-one-album-ten-images-atomic
+    name: Limites de álbum e imagens são atômicos no servidor
+    given:
+      - owner: user-free
+      - owner_private_album_count: 1
+      - album_item_count: 9
+      - two_concurrent_valid_image_uploads: true
+    when:
+      - submit_both_uploads: true
+      - create_second_private_album: true
+    then:
+      - successful_image_uploads: 1
+      - rejected_image_uploads: 1
+      - album_item_count: 10
+      - second_album_created: false
+      - limit_decided_by: server
+
+  - id: ALBUM-003-invisible-outside-private-flow
+    name: Álbum não aparece em superfícies públicas
+    given:
+      - owner: user-target-01
+      - private_album_item_count: 3
+      - requester: user-free
+      - requester_has_active_grant: false
+    when:
+      - list_discovery_profiles: true
+      - read_owner_public_profile: true
+      - list_conversations: true
+    then:
+      - album_metadata_visible: false
+      - album_images_or_thumbnails_visible: false
+      - storage_object_names_visible: false
+
+  - id: ALBUM-004-individual-grant
+    name: Concessão libera somente o destinatário escolhido
+    given:
+      - owner: user-target-01
+      - recipient: user-free
+      - unrelated_user: user-target-02
+      - album_item_count: 3
+    when:
+      - owner_grants_album_to_recipient: true
+    then:
+      - recipient_can_list_metadata: true
+      - recipient_can_read_images: true
+      - unrelated_user_can_list_metadata: false
+      - unrelated_user_can_read_images: false
+      - owner_can_read_images: true
+
+  - id: ALBUM-005-storage-reauthorizes-every-read
+    name: Storage nega acesso sem concessão vigente
+    given:
+      - requester: user-target-02
+      - album_owner: user-target-01
+      - requester_has_active_grant: false
+      - requester_knows_synthetic_object_path: true
+    when:
+      - request_album_metadata_directly: true
+      - request_album_object_directly: true
+    then:
+      - metadata_access_denied: true
+      - object_access_denied: true
+      - public_or_permanent_url_exists: false
+      - authorization_decided_by: server
+
+  - id: ALBUM-006-individual-revocation
+    name: Revogar uma pessoa não altera outras concessões
+    given:
+      - owner: user-target-01
+      - recipient_a_has_active_grant: true
+      - recipient_b_has_active_grant: true
+      - recipient_a_album_open_on_screen: true
+    when:
+      - owner_revokes_recipient_a: true
+    then:
+      - recipient_a_can_list_or_download: false
+      - recipient_a_loaded_images_removed_from_ui: true
+      - recipient_b_can_list_or_download: true
+      - owner_can_list_or_download: true
+
+  - id: ALBUM-007-block-revokes-both-directions-permanently
+    name: Bloqueio revoga concessões nos dois sentidos e desbloqueio não restaura
+    given:
+      - user_a: user-free
+      - user_b: user-target-01
+      - user_a_granted_album_to_user_b: true
+      - user_b_granted_album_to_user_a: true
+    when:
+      - user_a_blocks_user_b: true
+      - user_a_later_unblocks_user_b: true
+    then:
+      - a_to_b_grant_active: false
+      - b_to_a_grant_active: false
+      - user_a_can_read_user_b_album: false
+      - user_b_can_read_user_a_album: false
+      - grants_restored_by_unblock: false
+      - new_explicit_grant_required: true
+
+  - id: ALBUM-008-report-hides-and-opens-case
+    name: Destinatário denuncia álbum e perde o acesso ao conteúdo
+    given:
+      - owner: user-target-01
+      - reporter: user-free
+      - reporter_has_active_grant: true
+    when:
+      - reporter_reports_private_album: true
+      - report_reason: INAPPROPRIATE_PHOTO
+      - report_details: "Descrição sintética"
+    then:
+      - moderation_case_created: true
+      - reporter_grant_active: false
+      - album_visible_to_reporter: false
+      - sensitive_content_written_to_logs: false
+      - unrelated_grants_changed_without_moderation_decision: false
+
+  - id: ALBUM-009-moderation-removal-wins
+    name: Remoção por moderação prevalece sobre concessões
+    given:
+      - owner_account_status: active
+      - album_item_status: available
+      - active_grants: 2
+    when:
+      - authorized_moderator_removes_item: true
+    then:
+      - album_item_status: removed_by_moderation
+      - owner_can_read_removed_image: false
+      - recipients_can_read_removed_image: false
+      - moderation_audit_event_created: true
+
+  - id: ALBUM-010-delete-cleans-storage-and-metadata
+    name: Exclusão limpa objeto, metadados e concessões de forma idempotente
+    given:
+      - owner: user-target-01
+      - album_item_count: 3
+      - active_grants: 2
+      - storage_object_count: 3
+    when:
+      - owner_deletes_private_album: true
+      - cleanup_retried: true
+    then:
+      - album_row_exists: false
+      - album_item_rows_exist: false
+      - album_grant_rows_exist: false
+      - storage_objects_exist: false
+      - deleted_objects_are_readable: false
+      - cleanup_retry_is_safe: true
+
+  - id: ALBUM-011-account-state-denies-access
+    name: Suspensão do titular ou destinatário encerra acesso
+    given:
+      - owner: user-target-01
+      - recipient: user-free
+      - recipient_has_active_grant: true
+    when:
+      - owner_account_status_becomes_suspended: true
+    then:
+      - owner_can_read_album: false
+      - recipient_can_read_album: false
+      - client_cached_album_removed_from_ui: true
+
+  - id: ALBUM-012-warning-before-open
+    name: Álbum permanece bloqueado até ação explícita do destinatário
+    given:
+      - owner: user-target-01
+      - recipient: user-free
+      - recipient_has_active_grant: true
+      - album_opened_in_current_session: false
+    when:
+      - recipient_opens_owner_profile: true
+    then:
+      - album_images_visible_immediately: false
+      - locked_private_album_entry_visible: true
+      - private_content_warning_visible: true
+      - screenshot_limitation_warning_visible: true
+      - explicit_open_action_required: true
+
+  - id: ALBUM-013-images-only-in-this-version
+    name: Vídeo e acessos efêmeros ficam fora desta versão
+    given:
+      - owner: user-free
+      - private_album_exists: true
+    when:
+      - upload_private_album_video: true
+      - create_expiring_grant: true
+      - create_view_once_grant: true
+    then:
+      - video_upload_accepted: false
+      - expiring_grant_created: false
+      - view_once_grant_created: false
+      - normal_image_and_indefinite_grant_features_unchanged: true
+
+  - id: ALBUM-014-private-image-never-promoted
+    name: Foto privada não vira foto pública automaticamente
+    given:
+      - owner: user-free
+      - private_album_item_status: available
+      - public_profile_photo_status: pending
+    when:
+      - recipient_receives_album_grant: true
+    then:
+      - private_item_visible_in_public_profile: false
+      - private_item_visible_in_discovery: false
+      - public_profile_photo_status: pending
+      - profile_photo_moderation_bypassed: false

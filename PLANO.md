@@ -28,7 +28,7 @@ O posicionamento mais promissor é: **“conexões perto de você, com identidad
 
 1. **Identidade não é preferência.** Gênero, pronomes, orientação, intenção e preferências de descoberta serão campos separados.
 2. **Visibilidade é controlável.** A pessoa escolhe quem pode encontrá-la, quais campos aparecem e se deseja usar localização aproximada.
-3. **Contato direto com consentimento controlado.** Não haverá swipe nem match obrigatório: a pessoa pode iniciar uma conversa, mas quem recebe controla aceitar, ignorar, bloquear ou denunciar.
+3. **Contato direto com proteção imediata.** Não haverá swipe, match obrigatório ou aceite prévio: a primeira mensagem abre a conversa. Quem recebe pode bloquear ou denunciar a qualquer momento, e essas ações interrompem o contato imediatamente.
 4. **Segurança é uma feature.** Bloqueio, denúncia, moderação, prevenção a perfis falsos e proteção contra exposição de localização entram no MVP.
 5. **Coleta mínima.** Só pediremos uma permissão ou dado quando houver uma função clara que dependa dele.
 6. **Inclusão com linguagem simples.** Opções abertas, exemplos e explicações curtas; nenhum usuário precisa escolher um rótulo para continuar.
@@ -71,25 +71,35 @@ Metas iniciais, medidas em aparelhos Android intermediários e acompanhadas por 
 
 ### Onboarding e conta
 
-- Tela de idade mínima e confirmação de que a pessoa tem 18 anos ou mais.
-- Cadastro por e-mail/OTP; telefone pode ser adicionado depois para reduzir fraude, sem importar contatos.
-- Aceite dos Termos de Uso e da Política de Privacidade antes de criar conteúdo.
+- Cadastro por e-mail/OTP; a confirmação do e-mail cria ou confirma a conta. Telefone pode ser adicionado depois para reduzir fraude, sem importar contatos.
+- Onboarding básico com ano de nascimento, autodeclaração de que a pessoa tem 18 anos ou mais e aceite dos Termos de Uso e da Política de Privacidade antes de criar conteúdo.
+- O onboarding apresenta identidade de gênero separada da preferência de descoberta. A pessoa pode selecionar mais de uma identidade, usar autodescrição ou escolher “prefiro não informar”; a preferência “quem quero encontrar” também aceita múltiplas opções e nunca é exibida a terceiros.
+- Ao concluir esse onboarding, a conta e o perfil ficam ativos e utilizáveis como **não verificados**; a verificação Didit não é requisito para descoberta ou conversa.
 - Fluxo para apagar conta dentro do app e link web externo para solicitar a exclusão.
 
 ### Perfil
 
-- Nome de exibição, idade calculada a partir da data de nascimento, bio e até cinco fotos.
+- Nome de exibição, idade declarada a partir do ano de nascimento, bio e até cinco fotos.
 - Identidade de gênero com seleção múltipla e opção de autodescrição.
 - Pronomes opcionais.
 - Orientações/interesses de conexão opcionais, com explicação de visibilidade.
 - Intenção: conhecer pessoas, namoro, amizade, encontros casuais ou outra opção definida pelo usuário.
 - Tipo de relacionamento, incluindo monogamia, não monogamia consensual e “prefiro não informar”.
-- Selo de perfil verificado em uma segunda etapa; nunca tornar documento público.
+- Verificação 18+ opcional, iniciada depois pela aba Perfil. Somente o workflow Didit completo — documento brasileiro, prova de vida passiva e correspondência facial — concede o selo **18+ verificado**; ele não é um selo de identidade nem publica o documento.
+- A foto de perfil pode ser qualquer imagem permitida pela política de conteúdo; não precisa mostrar o rosto nem ser a selfie usada pelo Didit.
+- Cada versão de foto começa privada em `pending`; terceiros veem um placeholder cinza. Somente `approved` fica visível a terceiros, enquanto decisões `adult` ou `abusive` mantêm a imagem privada e o placeholder.
+- Enviar uma nova versão não substitui a versão já aprovada: a imagem anterior permanece pública até a nova versão também receber `approved`.
+- Cada pessoa pode manter um álbum privado com até dez imagens, totalmente separado das fotos públicas do perfil. As imagens do álbum ficam disponíveis imediatamente após o upload, sem aprovação prévia, mas continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.
+- O álbum não aparece na descoberta nem no perfil público. Somente o titular e destinatários autorizados individualmente podem abrir suas imagens; o titular pode revogar cada acesso a qualquer momento.
+- Bloquear alguém revoga permanentemente qualquer acesso de álbum nos dois sentidos. Desbloquear não restaura concessões anteriores, e uma nova autorização explícita é necessária.
+- A experiência avisa que capturas ou fotografias por outro aparelho não podem ser impedidas. Vídeo, acesso temporário e visualização única ficam fora desta versão.
 
 ### Descoberta
 
 - Grade de pessoas próximas, ordenada por distância aproximada, atividade recente e compatibilidade com os filtros.
 - Filtros por faixa etária, identidade, intenção, tipo de relacionamento e verificação.
+- A preferência privada de gêneros é aplicada pelo servidor à descoberta. Uma seleção específica só combina com identidades que a pessoa escolheu publicar; identidade oculta ou “prefiro não informar” não pode ser inferida pelo resultado do filtro.
+- Perfis existentes recebem migração segura: identidade “prefiro não informar”, oculta, e preferência “todas as pessoas”, sem deduzir gênero a partir de nome, bio, fotos ou conversas.
 - Distância exibida em faixas (“perto”, “na região”, “mais distante”), nunca em metros exatos.
 - Alternativa de escolher uma cidade/região sem compartilhar localização do aparelho.
 - Controles: pausar descoberta, ocultar distância, não aparecer em exploração e bloquear região específica.
@@ -97,9 +107,9 @@ Metas iniciais, medidas em aparelhos Android intermediários e acompanhadas por 
 ### Conexões e conversa
 
 - Botão principal “Conversar” diretamente no perfil.
-- A primeira mensagem abre uma solicitação de conversa; o destinatário pode aceitar, ignorar, bloquear ou denunciar.
+- A primeira mensagem abre imediatamente uma conversa ativa, sem solicitação ou aceite prévio.
 - Não haverá “passar”, recusar match ou dependência de interesse recíproco como no Tinder.
-- Chat 1:1 em tempo real depois que a solicitação for aceita ou respondida.
+- Chat 1:1 em tempo real desde o primeiro envio.
 - O plano Free poderá iniciar 5 novas conversas por janela de 24 horas; mensagens em conversas já abertas não consomem novas aberturas.
 - Limites por minuto, por perfil e por dispositivo continuam valendo também para planos pagos.
 - Envio de texto e fotos que passam por regras de conteúdo; sem mídia efêmera no MVP.
@@ -116,21 +126,22 @@ Metas iniciais, medidas em aparelhos Android intermediários e acompanhadas por 
 ### Segurança e operação
 
 - Denúncia de perfil, foto e mensagem com motivo estruturado e campo livre.
+- Denúncia de imagem ou álbum privado pelo destinatário autorizado, com ocultação imediata para quem denunciou e preservação mínima de evidência para moderação.
 - Fila de moderação com estados, evidências, histórico de ação e auditoria.
 - Limites por conta/dispositivo/IP para criação de perfis, interesses e mensagens.
-- Detecção inicial de spam, repetição de texto, imagens suspeitas e comportamento automatizado.
+- Controles iniciais de spam, repetição de texto, conteúdo de imagem e comportamento abusivo. O contrato define os estados e efeitos da moderação, sem prometer classificação automática.
 - Central de segurança com dicas de encontro, contato de confiança e orientação para emergência.
 - Painel web interno para moderadores, separado do app do usuário.
 
 ## 5. Fora do MVP
 
-Chamadas de vídeo/voz, transmissão ao vivo, mapa com pinos, localização em segundo plano, matching por IA, perfis de casal completos, eventos, feed público, tradução automática e anúncios. Esses itens só entram depois de validar retenção, segurança e densidade de usuários.
+Chamadas de vídeo/voz, transmissão ao vivo, mapa com pinos, localização em segundo plano, matching por IA, perfis de casal completos, eventos, feed público, tradução automática, anúncios, vídeo em álbum privado, concessão de álbum com expiração e visualização única. Esses itens só entram depois de validar retenção, segurança e densidade de usuários.
 
 ## 6. Segurança, privacidade e conformidade
 
 ### Google Play
 
-- O app deve usar o recurso **Restrict Minor Access** do Play Console e uma barreira de idade robusta; uma simples data digitada facilmente não é suficiente para um app cuja função principal é namoro/matchmaking.
+- O app deve usar o recurso **Restrict Minor Access** do Play Console e manter o gate básico de 18+ no onboarding. O Didit é uma verificação opcional posterior e não substitui a revisão de conformidade necessária antes do lançamento de um app de namoro/matchmaking.
 - Conteúdo sexual explícito, pornografia, solicitação de atos sexuais mediante compensação, sugar dating, conteúdo não consensual e exploração de menores serão proibidos.
 - Como haverá conteúdo gerado por usuários, precisamos de Termos/Política de Conteúdo, moderação contínua, denúncia de conteúdo e usuários, bloqueio em conversas 1:1 e resposta a violações.
 - O formulário Data safety precisa refletir localização, fotos, mensagens, identificadores, orientação e demais dados realmente tratados.
@@ -160,15 +171,15 @@ Chamadas de vídeo/voz, transmissão ao vivo, mapa com pinos, localização em s
 - Supabase como acelerador inicial para Auth, Storage, Realtime, Row Level Security e banco; manter regras de negócio sensíveis em funções/API próprias.
 - Consultas de descoberta com índice espacial, paginação por cursor, payloads pequenos e cache apenas para regiões/consultas quentes; Redis fica como otimização posterior, se os dados comprovarem necessidade.
 - Fotos servidas por CDN com versões de miniatura, média e original; o feed inicial nunca deve baixar imagens originais.
-- Serviço de moderação assíncrona para imagens e texto, com revisão humana para casos ambíguos.
+- Processo de moderação de imagens e texto com estados auditáveis e possibilidade de revisão humana; o MVP não depende nem promete um classificador automático.
 - Painel de moderação web com permissões por função, logs e exportação controlada de evidências.
 - Observabilidade: erros, latência, entregas de mensagens, decisões de moderação e eventos de produto sem registrar conteúdo sensível desnecessário.
 
 ### Modelo de dados inicial
 
-`users`, `profiles`, `profile_identities`, `profile_preferences`, `photos`, `locations`, `chat_requests`, `conversations`, `messages`, `blocks`, `reports`, `verifications`, `subscriptions`, `entitlements`, `moderation_cases` e `audit_events`.
+`users`, `profiles`, `profile_identities`, `profile_preferences`, `photos`, `private_albums`, `private_album_items`, `private_album_grants`, `locations`, `conversation_openings`, `conversations`, `messages`, `blocks`, `reports`, `verifications`, `subscriptions`, `entitlements`, `moderation_cases` e `audit_events`.
 
-Regra importante: identidade e orientação são atributos que o usuário pode escolher mostrar ou ocultar; preferências de descoberta não devem inferir ou expor uma identidade que a pessoa não publicou.
+Regras importantes: identidade e orientação são atributos que o usuário pode escolher mostrar ou ocultar; preferências de descoberta não devem inferir ou expor uma identidade que a pessoa não publicou. Metadados, objetos e permissões do álbum privado também são privados por padrão, e cada leitura precisa revalidar no servidor a concessão atual, a relação de bloqueio e o estado das contas.
 
 ## 8. Roadmap de execução
 
@@ -221,10 +232,10 @@ Publicar com faixa etária correta, Data safety preenchido, política de privaci
 
 1. Qual será a primeira cidade/região de lançamento?
 2. O produto será focado em namoro, em conexões casuais ou em ambos com intenções declaradas?
-3. A verificação será opcional no MVP ou necessária para aparecer na grade?
+3. Decidido: o onboarding básico ativa a conta como não verificada após confirmação do e-mail, autodeclaração 18+ e aceite dos termos; Didit não bloqueia descoberta nem conversa. A pessoa pode solicitar depois, no Perfil, o selo **18+ verificado**. Para concedê-lo, o Didit executa um workflow publicado e versionado com documento brasileiro, prova de vida `PASSIVE` e correspondência facial 1:1; falha ou revisão não desativa a conta, e suspensão/moderação sempre prevalecem. O Matcher mantém apenas pseudônimo técnico, referências opacas e resultado mínimo, sem identificador direto, dado documental, selfie ou biometria.
 4. O nome de trabalho “Matcher” será mantido ou vamos iniciar uma etapa de naming?
 
-**Assunção de trabalho para continuar sem bloquear:** Brasil, uma região metropolitana, adultos 18+, conversa direta com solicitação controlada, 5 novas aberturas por 24 horas no Free, localização aproximada e interface escura com rosa como destaque.
+**Assunção de trabalho para continuar sem bloquear:** Brasil, uma região metropolitana, adultos 18+, conversa direta sem aceite prévio, 5 novas aberturas por 24 horas no Free, bloqueio e denúncia imediatos, localização aproximada e interface escura com rosa como destaque.
 
 ## 12. Documentos de execução
 
@@ -232,14 +243,18 @@ Publicar com faixa etária correta, Data safety preenchido, política de privaci
 - [Especificação do MVP](docs/SPEC-MVP.md)
 - [Papéis de agentes](docs/AGENT_ROLES.md)
 - [Ambiente local](docs/LOCAL_DEV.md)
+- [Contrato do selo 18+ opcional com Didit](docs/age-assurance.md)
 - [Harness de testes](harness/README.md)
 - [Cenários de conversa e quota](harness/scenarios/chat.yml)
 - [Cenários de onboarding e perfil](harness/scenarios/onboarding.yml)
+- [Cenários de identidade e descoberta](harness/scenarios/discovery.yml)
+- [Cenários de álbum privado](harness/scenarios/private-album.yml)
 
 ## Referências consultadas
 
 - [Grindr — The Grid](https://help.grindr.com/hc/en-us/articles/12155355365011-The-Grid) e [Explore](https://help.grindr.com/hc/en-us/articles/12155548594707-Explore)
 - [Grindr — Unlimited](https://help.grindr.com/hc/en-us/articles/1500008656741-Grindr-Unlimited)
+- [Grindr — Albums](https://help.grindr.com/hc/en-us/articles/4414580688787-Albums), [Filters](https://help.grindr.com/hc/en-us/articles/12155443240851-Filters) e [How to Build Your Profile](https://help.grindr.com/hc/en-us/articles/4402336949523-How-to-Build-Your-Profile)
 - [Bumble — recursos de namoro](https://bumble.com/en-us/the-buzz/bumble-dating-features) e [recursos de segurança](https://support.bumble.com/hc/en-us/articles/28537051467293-Our-safety-features)
 - [Feeld — recursos do app](https://feeld.co/the-app) e [identidades, desejos e relacionamentos](https://support.feeld.co/hc/en-gb/articles/18822038569884-Desires-Relationship-Types-Sexualities-and-Genders-on-Feeld-Profiles-Explained)
 - [Google Play — conteúdo sexual](https://support.google.com/googleplay/android-developer/answer/17190352?hl=en&rd=3)

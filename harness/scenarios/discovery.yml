@@ -1,0 +1,117 @@
+version: 1
+domain: gender-discovery-preferences
+
+scenarios:
+  - id: DISC-GENDER-001-multi-select-server-filter
+    name: Servidor aplica preferência multi-seleção antes da paginação
+    given:
+      - viewer: user-free
+      - viewer_looking_for_gender_ids: [woman, non_binary]
+      - visible_candidate_identities:
+          user-target-01: [woman]
+          user-target-02: [man]
+          user-target-03: [non_binary, self_described]
+      - page_size: 2
+    when:
+      - list_discovery_profiles: true
+    then:
+      - returned_profile_ids: [user-target-01, user-target-03]
+      - user-target-02_returned: false
+      - filter_applied_before_pagination: true
+      - filter_decided_by: server
+
+  - id: DISC-GENDER-002-update-invalidates-cursor
+    name: Alterar preferência reinicia a descoberta
+    given:
+      - viewer: user-free
+      - current_looking_for_gender_ids: [woman]
+      - discovery_cursor_exists: true
+    when:
+      - replace_looking_for_gender_ids: [man, non_binary]
+    then:
+      - preference_saved_privately: true
+      - previous_cursor_valid: false
+      - next_discovery_starts_first_page: true
+      - next_filter_decided_by: server
+
+  - id: DISC-GENDER-003-preference-never-public
+    name: Preferência de gênero não é exposta a terceiros
+    given:
+      - profile_owner: user-target-01
+      - looking_for_gender_ids: [woman, non_binary]
+      - requester: user-free
+    when:
+      - requester_reads_public_profile: true
+      - requester_reads_discovery_card: true
+    then:
+      - looking_for_gender_ids_returned: false
+      - preference_visible_in_ui: false
+      - preference_written_to_logs_or_telemetry: false
+
+  - id: DISC-GENDER-004-hidden-identity-not-inferred
+    name: Filtro específico não revela identidade oculta
+    given:
+      - viewer_looking_for_gender_ids: [woman]
+      - candidate: user-target-hidden
+      - candidate_gender_identity_ids: [woman]
+      - candidate_gender_visible: false
+    when:
+      - list_discovery_profiles: true
+    then:
+      - candidate_returned_because_of_gender_filter: false
+      - hidden_identity_returned: false
+      - client_can_infer_hidden_identity_from_filter: false
+
+  - id: DISC-GENDER-005-everyone-does-not-filter
+    name: Todas as pessoas preserva descoberta sem expor identidade
+    given:
+      - viewer_looking_for_gender_ids: [everyone]
+      - candidate: user-target-hidden
+      - candidate_gender_identity_ids: [prefer_not_to_say]
+      - candidate_gender_visible: false
+      - candidate_eligible_by_other_discovery_rules: true
+    when:
+      - list_discovery_profiles: true
+    then:
+      - candidate_returned: true
+      - candidate_gender_identity_ids_returned: false
+      - gender_inferred: false
+
+  - id: DISC-GENDER-006-legacy-safe-defaults
+    name: Perfil legado recebe defaults sem classificação automática
+    given:
+      - legacy_profile: user-target-legacy
+      - gender_fields_missing: true
+      - synthetic_name_bio_and_photo_exist: true
+    when:
+      - migrate_gender_preferences: true
+    then:
+      - gender_identity_ids: [prefer_not_to_say]
+      - gender_visible: false
+      - looking_for_gender_ids: [everyone]
+      - gender_inferred_from_name_bio_photo_or_messages: false
+      - profile_remains_usable: true
+
+  - id: DISC-GENDER-007-exclusive-values
+    name: Valores exclusivos não podem ser combinados com outras opções
+    given:
+      - viewer: user-free
+    when:
+      - replace_looking_for_gender_ids: [everyone, woman]
+    then:
+      - preference_saved: false
+      - error: INVALID_DISCOVERY_PREFERENCE
+      - validation_decided_by: server
+
+  - id: DISC-GENDER-008-client-cannot-bypass-filter
+    name: Cliente não amplia a descoberta além da preferência persistida
+    given:
+      - viewer: user-free
+      - persisted_looking_for_gender_ids: [non_binary]
+    when:
+      - client_requests_unfiltered_discovery: true
+      - client_claims_looking_for_gender_ids: [everyone]
+    then:
+      - persisted_preference_used: [non_binary]
+      - unauthorized_filter_override_ignored: true
+      - response_is_paginated: true

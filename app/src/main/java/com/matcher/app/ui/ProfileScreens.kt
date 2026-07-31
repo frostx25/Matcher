@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -20,44 +21,11 @@ import androidx.compose.ui.unit.sp
 import com.matcher.app.domain.profile.LocalProfile
 
 @Composable
-internal fun ConversationsScreen(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(20.dp)
-            .testTag("conversations-screen"),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = "Conversas",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
-        Text(
-            text = "Suas solicitações e conversas ativas aparecerão aqui.",
-            color = TextSecondary,
-            fontSize = 14.sp,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "Nenhuma conversa ativa ainda",
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Surface, RoundedCornerShape(18.dp))
-                .padding(18.dp),
-        )
-    }
-}
-
-@Composable
 internal fun ProfileScreen(profile: LocalProfile, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
+            .background(Black)
             .padding(20.dp)
             .testTag("profile-screen"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -66,12 +34,19 @@ internal fun ProfileScreen(profile: LocalProfile, modifier: Modifier = Modifier)
             text = "Seu perfil",
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontWeight = FontWeight.Black,
         )
+        Text(
+            text = "O que as pessoas veem antes de conversar com você.",
+            color = TextSecondary,
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(6.dp))
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Surface, RoundedCornerShape(22.dp))
+                .clip(RoundedCornerShape(24.dp))
+                .background(Surface)
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -81,17 +56,26 @@ internal fun ProfileScreen(profile: LocalProfile, modifier: Modifier = Modifier)
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
             )
-            Text(text = profile.intent, color = Pink, fontSize = 14.sp)
+            Text(profile.intent, color = Pink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 text = profile.bio.ifBlank { "Adicione uma bio para contar mais sobre você." },
                 color = TextSecondary,
                 fontSize = 15.sp,
+                lineHeight = 21.sp,
             )
         }
-        Text(
-            text = "Sua localização exata não aparece no perfil.",
-            color = TextSecondary,
-            fontSize = 12.sp,
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(ColorForPrivacy)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Privacidade ativa", color = SoftPink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("Sua localização exata não aparece no perfil.", color = TextSecondary, fontSize = 12.sp)
+        }
     }
 }
+
+private val ColorForPrivacy = androidx.compose.ui.graphics.Color(0xFF201820)
