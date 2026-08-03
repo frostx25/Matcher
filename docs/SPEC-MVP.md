@@ -69,6 +69,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Excluir uma imagem, o álbum ou a conta remove metadados, concessões e objetos de Storage de modo idempotente. A exclusão do álbum é vinculada ao `album_id` exibido ao usuário; uma repetição tardia nunca pode atingir um álbum substituto. Falha parcial entra em rotina de limpeza sem tornar o objeto acessível.
 - Upload e exclusão concorrentes são serializados pelo caminho reservado. A limpeza usa lease/backoff, não deixa um item com falha monopolizar a fila e respeita retenção restrita de evidência de denúncia.
 - Antes de servir bytes, o backend confere formato, tamanho e limites seguros de dimensões/pixels. O Android faz decode amostrado; metadata ou extensão declarada pelo cliente não basta para considerar a imagem segura.
+- O upload usa uma reserva imutável antes de chamar o Storage. A policy de transporte aceita somente o caminho reservado, o titular autenticado e os metadados de pré-checagem produzidos pelo próprio Storage (`mimetype` e `contentLength`); a finalização continua exigindo os metadados definitivos (`mimetype` e `size`). Qualquer `SELECT` necessário para o retorno do upload fica restrito à operação `storage.object.upload` e não autoriza listar, baixar, assinar ou consultar objetos do álbum.
 - Antes de abrir o álbum, o destinatário vê uma tela bloqueada e um aviso de conteúdo privado/capturas. O app não promete impedir screenshots ou fotografias feitas com outro aparelho.
 - Esta versão aceita somente imagens. Vídeo, concessões com expiração e visualização única ficam fora do MVP.
 
@@ -234,6 +235,7 @@ O limite de um álbum e dez imagens é imposto atomicamente no servidor, inclusi
 - **AC-ALBUM-06:** excluir item, álbum ou conta não deixa objeto legível nem concessão órfã; repetição da limpeza produz o mesmo resultado.
 - **AC-ALBUM-07:** álbum e miniaturas não aparecem em descoberta, perfil público ou conversa; uma imagem privada nunca vira foto pública automaticamente.
 - **AC-ALBUM-08:** antes de abrir, o destinatário vê aviso sobre conteúdo privado e possibilidade de captura; o fluxo não oferece vídeo, expiração nem visualização única.
+- **AC-ALBUM-09:** depois de uma reserva válida, o upload real do Storage aceita a pré-checagem com `mimetype` e `contentLength`, conclui com `mimetype` e `size` e torna o item `available`; a permissão de retorno do upload não permite listar, baixar diretamente, assinar ou consultar o objeto por nenhuma outra operação.
 - **AC-AUTH-01:** informar e-mail e um código OTP válido cria a sessão no app; código inválido ou expirado não autentica.
 - **AC-AUTH-02:** o app aceita somente seis dígitos no campo OTP, inicia a validação automaticamente ao receber o sexto dígito e não persiste nem registra o código informado.
 - **AC-AUTH-03:** dois toques ou callbacks imediatos de envio, reenvio ou validação geram no máximo uma chamada ao provedor enquanto a operação estiver pendente; os controles de autenticação permanecem desabilitados até sua conclusão.

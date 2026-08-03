@@ -2,10 +2,12 @@ package com.matcher.app.data.remote
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.call.body
+import io.ktor.client.plugins.ResponseException
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
@@ -198,9 +200,16 @@ class SupabasePrivateAlbumGateway(
                 albumId = normalizedAlbumId,
                 itemId = reservation.itemId,
             )
-            bucket.upload(reservation.objectPath, jpegBytes) {
-                upsert = false
-                contentType = ContentType.Image.JPEG
+            try {
+                bucket.upload(reservation.objectPath, jpegBytes) {
+                    upsert = false
+                    contentType = ContentType.Image.JPEG
+                }
+            } catch (error: Exception) {
+                if (error.isPrivateAlbumStorageAccessDenied()) {
+                    throw PrivateAlbumStorageAccessException(error)
+                }
+                throw error
             }
             val finalized = client.postgrest.rpc(
                 function = "finalize_private_album_item",
@@ -394,6 +403,25 @@ private data class PrivateAlbumAccessRow(
 private data class PrivateAlbumDeleteResponse(
     val deleted: Boolean,
 )
+
+internal class PrivateAlbumStorageAccessException(
+    cause: Throwable,
+) : Exception("PRIVATE_ALBUM_STORAGE_ACCESS_DENIED", cause)
+
+internal fun Throwable.isPrivateAlbumStorageAccessDenied(): Boolean = selfAndCauses().any { error ->
+    val statusCode = when (error) {
+        is RestException -> error.statusCode
+        is ResponseException -> error.response.status.value
+        else -> null
+    }
+    val normalizedMessage = error.message.orEmpty().lowercase()
+    statusCode == 401 || statusCode == 403 ||
+        normalizedMessage.contains("row-level security") ||
+        normalizedMessage.contains("row level security") ||
+        normalizedMessage.contains("42501") ||
+        normalizedMessage.contains("unauthorized") ||
+        normalizedMessage.contains("forbidden")
+}
 
 private fun ByteArray.isPrivateAlbumJpeg(): Boolean =
     size >= 4 && this[0] == 0xFF.toByte() && this[1] == 0xD8.toByte() &&

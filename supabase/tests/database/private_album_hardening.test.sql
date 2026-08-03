@@ -82,8 +82,8 @@ select results_eq(
     $$select count(*) from pg_policies
       where schemaname = 'storage' and tablename = 'objects'
         and policyname like 'matcher_private_albums%' and cmd = 'SELECT'$$,
-    array[0::bigint],
-    'private albums keep no authenticated Storage SELECT policy'
+    array[1::bigint],
+    'private albums expose one SELECT policy limited to upload INSERT RETURNING'
 );
 select results_eq(
     $$select count(*) from pg_policies
@@ -188,13 +188,26 @@ select * from public.reserve_private_album_item(
 );
 grant select on hard_reservation to authenticated, service_role;
 
+set local storage.operation = 'storage.object.upload';
 select lives_ok(
     $$insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
       select 'private-albums', object_path, auth.uid(), auth.uid()::text,
-             '{"size":2048,"mimetype":"image/jpeg"}'::jsonb
-      from hard_reservation$$,
-    'owner uploads the exact reserved object before any tombstone'
+             '{"contentLength":2048,"mimetype":"image/jpeg"}'::jsonb
+      from hard_reservation
+      returning id$$,
+    'Storage precheck returns the exact reserved object before any tombstone'
 );
+
+set local role postgres;
+update storage.objects object
+   set metadata = '{"size":2048,"mimetype":"image/jpeg"}'::jsonb
+ where object.bucket_id = 'private-albums'
+   and object.name = (select object_path from hard_reservation);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000801';
+set local "request.jwt.claim.role" = 'authenticated';
+set local storage.operation = '';
 select lives_ok(
     $$select * from public.finalize_private_album_item(
         (select item_id from hard_reservation)

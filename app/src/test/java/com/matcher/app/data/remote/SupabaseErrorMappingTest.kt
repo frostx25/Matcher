@@ -18,4 +18,14 @@ class SupabaseErrorMappingTest {
 
         assertNull(error.matcherCode())
     }
+
+    @Test
+    fun mapsKnownCodeFromNestedCauseWithoutExposingItsDetails() {
+        val error = IllegalStateException(
+            "upload failed",
+            IllegalStateException("PRIVATE_ALBUM_STORAGE_ACCESS_DENIED: hidden storage details"),
+        )
+
+        assertEquals("PRIVATE_ALBUM_STORAGE_ACCESS_DENIED", error.matcherCode())
+    }
 }

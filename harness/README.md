@@ -41,7 +41,7 @@ Os cenários executáveis ficam em:
 
 - `harness/scenarios/onboarding.yml` (versão 14): autenticação por e-mail com single-flight, cooldown e timeout indeterminado, onboarding 18+, compatibilidade segura, identidade de gênero, selo opcional, precedência da moderação e visibilidade/versionamento de foto pública.
 - `harness/scenarios/discovery.yml` (versão 2): preferência privada multi-seleção, filtragem autoritativa, bloqueio de leitura ampla, troca segura de cursor, privacidade e migração.
-- `harness/scenarios/private-album.yml` (versão 2): limite, acesso, concorrência, concessão, revogação, bloqueio, denúncia, moderação, proteção de mídia e limpeza.
+- `harness/scenarios/private-album.yml` (versão 3): limite, upload real do Storage, acesso, concorrência, concessão, revogação, bloqueio, denúncia, moderação, proteção de mídia e limpeza.
 - `harness/scenarios/chat.yml`: abertura direta e quota de novas conversas.
 
 ## Comandos planejados

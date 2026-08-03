@@ -3,7 +3,7 @@ begin;
 set local role postgres;
 
 set local search_path = public, testing, extensions;
-select plan(69);
+select plan(78);
 
 -- Test-only access is transaction-scoped and rolled back at the end.
 grant usage on schema testing to anon, authenticated, service_role;
@@ -27,8 +27,8 @@ select results_eq(
         where schemaname = 'storage' and tablename = 'objects'
           and policyname like 'matcher_private_albums%'
           and cmd = 'SELECT'$$,
-    array[0::bigint],
-    'bucket has no authenticated SELECT path that could mint signed URLs'
+    array[1::bigint],
+    'bucket has one upload-operation-only SELECT policy for INSERT RETURNING'
 );
 select results_eq(
     $$select count(*) from pg_policies
@@ -37,6 +37,22 @@ select results_eq(
           and cmd = 'DELETE'$$,
     array[0::bigint],
     'bucket has no authenticated DELETE path that could bypass metadata-first cleanup'
+);
+select ok(
+    not coalesce(private.private_album_upload_metadata_is_safe(
+        'owner/album/item.jpg',
+        'image/jpeg',
+        '{"size":1024,"mimetype":"image/jpeg"}'::jsonb
+    ), false),
+    'final size-only metadata is rejected by the upload precheck'
+);
+select ok(
+    not coalesce(private.private_album_upload_metadata_is_safe(
+        'owner/album/item.jpg',
+        'image/jpeg',
+        '{"contentLength":5242881,"mimetype":"image/jpeg"}'::jsonb
+    ), false),
+    'upload precheck rejects contentLength above five MiB'
 );
 select ok(
     not has_table_privilege('authenticated', 'private.private_albums', 'SELECT'),
@@ -145,6 +161,7 @@ select throws_ok(
     'video is outside the private album MVP'
 );
 
+set local storage.operation = 'storage.object.upload';
 select throws_ok(
     $$insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
       select
@@ -153,8 +170,9 @@ select throws_ok(
               '/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1.jpg',
           auth.uid(),
           auth.uid()::text,
-          '{"size":1024,"mimetype":"image/jpeg"}'::jsonb
-      from public.get_my_private_album()$$,
+          '{"contentLength":1024,"mimetype":"image/jpeg"}'::jsonb
+      from public.get_my_private_album()
+      returning id$$,
     '42501',
     'new row violates row-level security policy for table "objects"',
     'storage rejects an object path that was not reserved by the server'
@@ -169,9 +187,63 @@ select lives_ok(
     $$insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
       select
           'private-albums', reserved.object_path, auth.uid(), auth.uid()::text,
-          '{"size":2048,"mimetype":"image/jpeg"}'::jsonb
-      from album_upload_reservation reserved$$,
-    'owner uploads bytes only to the exact reserved immutable path'
+          '{"contentLength":2048,"mimetype":"image/jpeg"}'::jsonb
+      from album_upload_reservation reserved
+      returning id$$,
+    'Storage precheck inserts and returns the exact reserved immutable path'
+);
+
+select results_eq(
+    $$select count(*) from storage.objects object
+      where object.bucket_id = 'private-albums'
+        and object.name = (select object_path from album_upload_reservation)$$,
+    array[1::bigint],
+    'upload operation can read only its reserved row for INSERT RETURNING'
+);
+
+set local storage.operation = '';
+select results_eq(
+    $$select count(*) from storage.objects object
+      where object.bucket_id = 'private-albums'
+        and object.name = (select object_path from album_upload_reservation)$$,
+    array[0::bigint],
+    'missing Storage operation cannot read the private object row'
+);
+
+set local storage.operation = 'storage.object.list';
+select results_eq(
+    $$select count(*) from storage.objects object
+      where object.bucket_id = 'private-albums'
+        and object.name = (select object_path from album_upload_reservation)$$,
+    array[0::bigint],
+    'Storage list operation cannot read the private object row'
+);
+
+set local storage.operation = 'storage.object.get_authenticated';
+select results_eq(
+    $$select count(*) from storage.objects object
+      where object.bucket_id = 'private-albums'
+        and object.name = (select object_path from album_upload_reservation)$$,
+    array[0::bigint],
+    'authenticated download operation cannot read the private object row'
+);
+
+set local storage.operation = 'storage.object.sign';
+select results_eq(
+    $$select count(*) from storage.objects object
+      where object.bucket_id = 'private-albums'
+        and object.name = (select object_path from album_upload_reservation)$$,
+    array[0::bigint],
+    'signed URL operation cannot read the private object row'
+);
+
+select throws_ok(
+    $$select * from public.finalize_private_album_item(
+        (select item_id from public.list_my_private_album_items() limit 1)
+    )$$,
+    'P0001',
+    'PRIVATE_ALBUM_OBJECT_NOT_FOUND',
+    'transport contentLength metadata cannot satisfy finalization'
 );
 
 select results_eq(
@@ -181,6 +253,21 @@ select results_eq(
     array[0::bigint],
     'uploading transport state is not readable before finalization'
 );
+
+set local role postgres;
+select lives_ok(
+    $$update storage.objects object
+         set metadata = '{"size":2048,"mimetype":"image/jpeg"}'::jsonb
+       where object.bucket_id = 'private-albums'
+         and object.name = (select object_path from album_upload_reservation)
+       returning object.id$$,
+    'trusted Storage completion replaces transport metadata with final size'
+);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
+set local "request.jwt.claim.role" = 'authenticated';
+set local storage.operation = '';
 
 select lives_ok(
     $$select * from public.finalize_private_album_item(
@@ -512,9 +599,13 @@ select results_eq(
 
 set local role postgres;
 select results_eq(
-    $$select count(*) from private.private_album_cleanup_queue$$,
+    $$select count(*)
+        from private.private_album_cleanup_queue queued
+        where queued.object_path in (
+            select object_path from album_test_fixture
+        )$$,
     array[1::bigint],
-    'moderation removal enqueues physical object cleanup exactly once'
+    'moderation removal enqueues this synthetic object for cleanup exactly once'
 );
 
 set local role authenticated;

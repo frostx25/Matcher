@@ -888,6 +888,33 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun storagePolicyFailureKeepsAlbumOpenAndShowsRecoverableSafeMessage() = runTest(dispatcher) {
+        val albumId = "00000000-0000-4000-8000-000000000317"
+        val hiddenStorageDetails = "PRIVATE_ALBUM_STORAGE_ACCESS_DENIED: hidden/object/path"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumId, "active", 0)
+            uploadFailure = IllegalStateException("upload failed", IllegalStateException(hiddenStorageDetails))
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+
+        viewModel.uploadPrivateAlbumPhoto(jpeg)
+        advanceUntilIdle()
+
+        assertEquals(PrivateAlbumDestination.Mine, viewModel.uiState.value.privateAlbum.destination)
+        assertEquals(
+            "Não foi possível enviar a foto privada agora. Tente novamente; " +
+                "se continuar, saia e entre na conta.",
+            viewModel.uiState.value.errorMessage,
+        )
+        assertFalse(viewModel.uiState.value.errorMessage.orEmpty().contains(hiddenStorageDetails))
+        assertTrue(jpeg.all { it == 0.toByte() })
+    }
+
+    @Test
     fun ownerSummaryRetriesWhenAlbumChangesBetweenUnboundReads() = runTest(dispatcher) {
         val albumA = "00000000-0000-4000-8000-000000000313"
         val albumB = "00000000-0000-4000-8000-000000000314"
@@ -1305,6 +1332,7 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     var reportedAlbumId: String? = null
     var deletedAlbumId: String? = null
     var uploadedAlbumId: String? = null
+    var uploadFailure: Exception? = null
     val uploadAttempts = mutableListOf<String>()
     var createAlbumCalls = 0
     var grantedAlbumId: String? = null
@@ -1362,6 +1390,7 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     override suspend fun uploadPrivateAlbumImage(albumId: String, jpegBytes: ByteArray): PrivateAlbumItem {
         uploadAttempts += albumId
         check(this.album?.albumId == albumId)
+        uploadFailure?.let { throw it }
         uploadedAlbumId = albumId
         val item = PrivateAlbumItem(
             itemId = "20000000-0000-4000-8000-${(items.size + 1).toString().padStart(12, '0')}",

@@ -1,4 +1,4 @@
-version: 2
+version: 3
 domain: private-photo-album
 
 scenarios:
@@ -337,3 +337,26 @@ scenarios:
       - report_created_for_album_b: false
       - album_b_status: active
       - every_mutation_revalidated_expected_album_id: true
+
+  - id: ALBUM-022-storage-upload-metadata-contract
+    name: Upload real aceita metadata de transporte sem abrir leitura do bucket
+    given:
+      - owner: user-free
+      - account_status: active
+      - private_album_exists: true
+      - reserved_item_status: uploading
+      - storage_preflight_metadata:
+          mimetype: image/jpeg
+          contentLength: 2048
+    when:
+      - storage_upload_operation_inserts_reserved_object: true
+      - storage_superuser_replaces_metadata_with_final_size: 2048
+      - owner_finalizes_reserved_item: true
+      - owner_attempts_storage_list_download_and_sign: true
+    then:
+      - upload_return_allowed_only_for_operation: storage.object.upload
+      - item_status: available
+      - direct_object_list_allowed: false
+      - direct_object_download_allowed: false
+      - signed_url_creation_allowed: false
+      - permanent_url_exists: false

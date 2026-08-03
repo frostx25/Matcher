@@ -1548,6 +1548,9 @@ private fun Throwable.toPrivateAlbumMessage(): String = when (matcherCode()) {
     "INVALID_PRIVATE_ALBUM_IMAGE_FORMAT", "INVALID_PRIVATE_ALBUM_MEDIA_TYPE",
     "INVALID_PRIVATE_ALBUM_PATH" ->
         "Escolha uma imagem JPG, PNG ou WebP válida."
+    "PRIVATE_ALBUM_STORAGE_ACCESS_DENIED" ->
+        "Não foi possível enviar a foto privada agora. Tente novamente; " +
+            "se continuar, saia e entre na conta."
     "PRIVATE_ALBUM_FORBIDDEN", "PRIVATE_ALBUM_ACCESS_DENIED", "ALBUM_ACCESS_DENIED",
     "PRIVATE_ALBUM_NOT_FOUND", "PRIVATE_ALBUM_NOT_AVAILABLE",
     "PRIVATE_ALBUM_ITEM_NOT_FOUND", "PRIVATE_ALBUM_OBJECT_NOT_FOUND",

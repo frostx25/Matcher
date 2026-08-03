@@ -322,6 +322,7 @@ internal fun Throwable.matcherCode(): String? {
         "PRIVATE_ALBUM_OBJECT_NOT_FOUND",
         "PRIVATE_ALBUM_FORBIDDEN",
         "PRIVATE_ALBUM_ACCESS_DENIED",
+        "PRIVATE_ALBUM_STORAGE_ACCESS_DENIED",
         "ALBUM_ACCESS_DENIED",
         "ALBUM_ACCESS_BLOCKED",
         "PRIVATE_ALBUM_EMPTY",
@@ -337,8 +338,14 @@ internal fun Throwable.matcherCode(): String? {
         "INVALID_ALBUM_RECIPIENT",
         "ALBUM_BLOCKED",
     )
-    return knownCodes.firstOrNull { message?.contains(it) == true }
+    for (error in selfAndCauses()) {
+        knownCodes.firstOrNull { error.message?.contains(it) == true }?.let { return it }
+    }
+    return null
 }
+
+internal fun Throwable.selfAndCauses(): Sequence<Throwable> =
+    generateSequence(this) { current -> current.cause }.take(16)
 
 private fun ConversationRow.toDomain(messages: List<ChatMessage>) = Conversation(
     id = id,

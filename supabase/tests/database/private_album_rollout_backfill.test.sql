@@ -61,13 +61,20 @@ select * from public.reserve_private_album_item(
 );
 grant select on rollout_item to postgres, authenticated, service_role;
 
+set local role postgres;
 select lives_ok(
     $$insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
-      select 'private-albums', object_path, auth.uid(), auth.uid()::text,
+      select 'private-albums', object_path,
+             '00000000-0000-0000-0000-000000000901'::uuid,
+             '00000000-0000-0000-0000-000000000901',
              '{"size":2048,"mimetype":"image/jpeg"}'::jsonb
       from rollout_item$$,
-    'legacy-state object exists in Storage'
+    'trusted legacy-state fixture exists in Storage with final metadata'
 );
+
+set local role authenticated;
+set local "request.jwt.claim.role" = 'authenticated';
+set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000901';
 select lives_ok(
     $$select * from public.finalize_private_album_item(
         (select item_id from rollout_item)
@@ -83,13 +90,20 @@ select * from public.reserve_private_album_item(
 );
 grant select on rollout_late_item to postgres, authenticated, service_role;
 
+set local role postgres;
 select lives_ok(
     $$insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
-      select 'private-albums', object_path, auth.uid(), auth.uid()::text,
+      select 'private-albums', object_path,
+             '00000000-0000-0000-0000-000000000901'::uuid,
+             '00000000-0000-0000-0000-000000000901',
              '{"size":2048,"mimetype":"image/jpeg"}'::jsonb
       from rollout_late_item$$,
-    'post-report object fixture exists in Storage'
+    'trusted post-report fixture exists in Storage with final metadata'
 );
+
+set local role authenticated;
+set local "request.jwt.claim.role" = 'authenticated';
+set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000901';
 select lives_ok(
     $$select * from public.finalize_private_album_item(
         (select item_id from rollout_late_item)
