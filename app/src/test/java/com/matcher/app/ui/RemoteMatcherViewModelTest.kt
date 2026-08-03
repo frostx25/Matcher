@@ -28,6 +28,8 @@ import com.matcher.app.domain.chat.SendMessageResult
 import com.matcher.app.domain.chat.StartConversationResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,9 +37,14 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -318,6 +325,253 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun closingAlbumCancelsRevealAndLateResponseCannotReopenIt() = runTest(dispatcher) {
+        val shared = syntheticSharedAlbum()
+        val item = PrivateAlbumItem("00000000-0000-4000-8000-000000000263", 0)
+        val gate = CompletableDeferred<Unit>()
+        val albums = FakePrivateAlbumGateway().apply {
+            sharedWithMe += shared
+            receivedContent = PrivateAlbumContent(shared.albumId, shared.ownerId, listOf(item))
+            bytesByItemId[item.itemId] = byteArrayOf(7, 8, 9)
+            getPrivateAlbumGate = gate
+            ignoreGetPrivateAlbumCancellation = true
+        }
+        val viewModel = activeViewModel(albums = albums)
+        advanceUntilIdle()
+
+        viewModel.openReceivedPrivateAlbum(shared)
+        viewModel.revealReceivedPrivateAlbum()
+        runCurrent()
+        viewModel.closePrivateAlbum()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.privateAlbum.destination)
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.isEmpty())
+    }
+
+    @Test
+    fun changingSessionDiscardsLatePrivateAlbumResponseFromPreviousUser() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-one"))
+        val shared = syntheticSharedAlbum()
+        val item = PrivateAlbumItem("00000000-0000-4000-8000-000000000273", 0)
+        val gate = CompletableDeferred<Unit>()
+        val albums = FakePrivateAlbumGateway().apply {
+            sharedWithMe += shared
+            receivedContent = PrivateAlbumContent(shared.albumId, shared.ownerId, listOf(item))
+            bytesByItemId[item.itemId] = byteArrayOf(10, 11, 12)
+            getPrivateAlbumGate = gate
+            ignoreGetPrivateAlbumCancellation = true
+        }
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = FakeProfileGateway(initialProfile = testProfile()),
+            albums = albums,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+
+        viewModel.openReceivedPrivateAlbum(shared)
+        viewModel.revealReceivedPrivateAlbum()
+        runCurrent()
+        auth.session.value = MatcherSession.SignedIn("user-two")
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(MatcherSession.SignedIn("user-two"), viewModel.uiState.value.session)
+        assertNull(viewModel.uiState.value.privateAlbum.destination)
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.isEmpty())
+    }
+
+    @Test
+    fun downloadedBytesReturnedAfterSessionCancellationAreZeroedBeforeDiscard() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-one"))
+        val shared = syntheticSharedAlbum()
+        val item = PrivateAlbumItem("00000000-0000-4000-8000-000000000274", 0)
+        val albums = FakePrivateAlbumGateway().apply {
+            sharedWithMe += shared
+            receivedContent = PrivateAlbumContent(shared.albumId, shared.ownerId, listOf(item))
+            bytesByItemId[item.itemId] = byteArrayOf(21, 22, 23)
+            holdDownloadNonCancellable = true
+        }
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = FakeProfileGateway(initialProfile = testProfile()),
+            albums = albums,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+        viewModel.openReceivedPrivateAlbum(shared)
+        viewModel.revealReceivedPrivateAlbum()
+        runCurrent()
+
+        auth.session.value = MatcherSession.SignedIn("user-two")
+        runCurrent()
+        albums.completeHeldDownload()
+        advanceUntilIdle()
+
+        assertTrue(requireNotNull(albums.lastReturnedDownload).all { it == 0.toByte() })
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.isEmpty())
+    }
+
+    @Test
+    fun changingSessionCancelsInitialAlbumSummaryLoadWithoutStoppingSessionCollection() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-one"))
+        val gate = CompletableDeferred<Unit>()
+        val albums = FakePrivateAlbumGateway().apply {
+            getMyPrivateAlbumGate = gate
+            ignoreGetMyPrivateAlbumCancellation = true
+        }
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = FakeProfileGateway(initialProfile = testProfile()),
+            albums = albums,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        runCurrent()
+        assertEquals(SignedInStage.Active, viewModel.uiState.value.signedInStage)
+
+        auth.session.value = MatcherSession.SignedIn("user-two")
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(MatcherSession.SignedIn("user-two"), viewModel.uiState.value.session)
+        assertEquals(SignedInStage.Active, viewModel.uiState.value.signedInStage)
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.isEmpty())
+    }
+
+    @Test
+    fun sharedAlbumOpensDirectlyFromSharedWithMeWithoutSelectedDiscoveryProfile() = runTest(dispatcher) {
+        val shared = syntheticSharedAlbum().copy(ownerDisplayName = "Fora da descoberta")
+        val albums = FakePrivateAlbumGateway().apply { sharedWithMe += shared }
+        val viewModel = activeViewModel(albums = albums)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.discovery.profiles.isEmpty())
+        viewModel.openReceivedPrivateAlbum(shared)
+
+        assertEquals(
+            PrivateAlbumDestination.Warning(shared.albumId, shared.ownerId, "Fora da descoberta"),
+            viewModel.uiState.value.privateAlbum.destination,
+        )
+    }
+
+    @Test
+    fun revokedGrantRemainsKnownSoOwnerCanGrantAgainOutsideDiscovery() = runTest(dispatcher) {
+        val recipientId = "00000000-0000-4000-8000-000000000282"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum("00000000-0000-4000-8000-000000000281", "active", 1)
+            grants += PrivateAlbumGrant(recipientId, "Contato conhecido", "2026-07-31T12:00:00Z")
+        }
+        val viewModel = activeViewModel(albums = albums)
+        advanceUntilIdle()
+
+        viewModel.togglePrivateAlbumGrant(recipientId, currentlyShared = true)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.privateAlbum.myGrants.isEmpty())
+        assertEquals("Contato conhecido", viewModel.uiState.value.privateAlbum.knownRecipients[recipientId])
+        assertEquals("00000000-0000-4000-8000-000000000281", albums.revokedAlbumId)
+    }
+
+    @Test
+    fun grantStartedForAlbumACannotRetargetReplacementAlbumBAfterSessionChange() = runTest(dispatcher) {
+        val albumA = PrivateAlbum("00000000-0000-4000-8000-000000000283", "active", 1)
+        val albumB = PrivateAlbum("00000000-0000-4000-8000-000000000284", "active", 1)
+        val recipientId = "00000000-0000-4000-8000-000000000285"
+        val gate = CompletableDeferred<Unit>()
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-a"))
+        val albums = FakePrivateAlbumGateway().apply { album = albumA }
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = FakeProfileGateway(initialProfile = testProfile()),
+            albums = albums,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+        albums.grantGate = gate
+        albums.ignoreGrantCancellation = true
+
+        viewModel.togglePrivateAlbumGrant(recipientId, currentlyShared = false)
+        runCurrent()
+        albums.album = albumB
+        auth.session.value = MatcherSession.SignedIn("user-b")
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(albumA.albumId, albums.grantedAlbumId)
+        assertEquals(albumB.albumId, viewModel.uiState.value.privateAlbum.myAlbum?.albumId)
+    }
+
+    @Test
+    fun staleDiscoveryCursorAlwaysReplacesPreviousProfilesWithFreshFirstPage() = runTest(dispatcher) {
+        val oldFirst = testProfile().copy(id = "00000000-0000-4000-8000-000000000291", displayName = "Anterior")
+        val freshFirst = testProfile().copy(id = "00000000-0000-4000-8000-000000000292", displayName = "Novo filtro")
+        val profiles = FakeProfileGateway(initialProfile = testProfile()).apply {
+            firstPage = DiscoveryPage(listOf(oldFirst), oldFirst.id, preferenceCursorVersion = 1)
+        }
+        val viewModel = viewModel(
+            auth = FakeAuthGateway(MatcherSession.SignedIn("user-test")),
+            profiles = profiles,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+        profiles.firstPage = DiscoveryPage(listOf(freshFirst), null, preferenceCursorVersion = 2)
+        profiles.failNextCursorAsStale = true
+
+        viewModel.loadMoreDiscovery()
+        advanceUntilIdle()
+
+        assertEquals(listOf(freshFirst.id), viewModel.uiState.value.discovery.profiles.map { it.id })
+        assertEquals(2L, viewModel.uiState.value.discovery.preferenceCursorVersion)
+    }
+
+    @Test
+    fun lateDiscoveryPageFromPreviousSessionCannotPopulateNextUser() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-a"))
+        val firstA = testProfile().copy(
+            id = "00000000-0000-4000-8000-000000000301",
+            displayName = "Sessão A",
+        )
+        val nextA = testProfile().copy(
+            id = "00000000-0000-4000-8000-000000000302",
+            displayName = "Página tardia A",
+        )
+        val firstB = testProfile().copy(
+            id = "00000000-0000-4000-8000-000000000303",
+            displayName = "Sessão B",
+        )
+        val gate = CompletableDeferred<Unit>()
+        val profiles = FakeProfileGateway(initialProfile = testProfile()).apply {
+            firstPage = DiscoveryPage(listOf(firstA), firstA.id, preferenceCursorVersion = 1)
+            nextPage = DiscoveryPage(listOf(nextA), null, preferenceCursorVersion = 1)
+        }
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = profiles,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+        profiles.nextPageGate = gate
+        profiles.ignoreNextPageCancellation = true
+
+        viewModel.loadMoreDiscovery()
+        runCurrent()
+        profiles.firstPage = DiscoveryPage(listOf(firstB), null, preferenceCursorVersion = 2)
+        auth.session.value = MatcherSession.SignedIn("user-b")
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(MatcherSession.SignedIn("user-b"), viewModel.uiState.value.session)
+        assertEquals(listOf(firstB.id), viewModel.uiState.value.discovery.profiles.map { it.id })
+        assertFalse(viewModel.uiState.value.discovery.profiles.any { it.id == nextA.id })
+    }
+
+    @Test
     fun privateAlbumUploadCreatesAlbumAndMakesPhotoImmediatelyAvailableToOwner() = runTest(dispatcher) {
         val albums = FakePrivateAlbumGateway()
         val viewModel = viewModel(
@@ -330,14 +584,98 @@ class RemoteMatcherViewModelTest {
         viewModel.openMyPrivateAlbum()
         advanceUntilIdle()
         val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+        val expectedJpeg = jpeg.copyOf()
 
         viewModel.uploadPrivateAlbumPhoto(jpeg)
         advanceUntilIdle()
 
         assertNotNull(viewModel.uiState.value.privateAlbum.myAlbum)
+        assertEquals(viewModel.uiState.value.privateAlbum.myAlbum?.albumId, albums.uploadedAlbumId)
         assertEquals(1, viewModel.uiState.value.privateAlbum.myItems.size)
         assertEquals("available", viewModel.uiState.value.privateAlbum.myItems.single().itemStatus)
-        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.values.single().contentEquals(jpeg))
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.values.single().contentEquals(expectedJpeg))
+        assertTrue(jpeg.all { it == 0.toByte() })
+    }
+
+    @Test
+    fun staleUploadFromAlbumAIsNeverRedirectedToReplacementAlbumB() = runTest(dispatcher) {
+        val albumA = "00000000-0000-4000-8000-000000000311"
+        val albumB = "00000000-0000-4000-8000-000000000312"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumA, "active", 0)
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+        assertEquals(albumA, viewModel.uiState.value.privateAlbum.myAlbum?.albumId)
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+
+        viewModel.uploadPrivateAlbumPhoto(jpeg)
+        albums.album = PrivateAlbum(albumB, "active", 0)
+        advanceUntilIdle()
+
+        assertEquals(listOf(albumA), albums.uploadAttempts)
+        assertNull(albums.uploadedAlbumId)
+        assertEquals(0, albums.createAlbumCalls)
+        assertTrue(jpeg.all { it == 0.toByte() })
+    }
+
+    @Test
+    fun rejectedPrivateAlbumUploadWipesSelectedPhotoBytes() = runTest(dispatcher) {
+        val albums = FakePrivateAlbumGateway()
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+
+        viewModel.uploadPrivateAlbumPhoto(jpeg)
+
+        assertTrue(jpeg.all { it == 0.toByte() })
+        assertTrue(albums.uploadAttempts.isEmpty())
+        assertEquals(0, albums.createAlbumCalls)
+    }
+
+    @Test
+    fun ownerSummaryRetriesWhenAlbumChangesBetweenUnboundReads() = runTest(dispatcher) {
+        val albumA = "00000000-0000-4000-8000-000000000313"
+        val albumB = "00000000-0000-4000-8000-000000000314"
+        val itemA = PrivateAlbumItem("00000000-0000-4000-8000-000000000315", 0)
+        val itemB = PrivateAlbumItem("00000000-0000-4000-8000-000000000316", 0)
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumA, "active", 1)
+            items += itemA
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        assertEquals(albumA, viewModel.uiState.value.privateAlbum.myAlbum?.albumId)
+        assertEquals(listOf(itemA.itemId), viewModel.uiState.value.privateAlbum.myItems.map { it.itemId })
+        albums.items.clear()
+        albums.items += itemB
+        albums.switchAlbumAfterNextGet = PrivateAlbum(albumB, "active", 1)
+
+        viewModel.refreshPrivateAlbumAccess()
+        advanceUntilIdle()
+
+        assertEquals(albumB, viewModel.uiState.value.privateAlbum.myAlbum?.albumId)
+        assertEquals(listOf(itemB.itemId), viewModel.uiState.value.privateAlbum.myItems.map { it.itemId })
+    }
+
+    @Test
+    fun deletingAlbumPinsRequestToAlbumCurrentlyShownByTheOwner() = runTest(dispatcher) {
+        val expectedAlbumId = "00000000-0000-4000-8000-000000000321"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(expectedAlbumId, "active", 0)
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+
+        viewModel.deleteMyPrivateAlbum()
+        advanceUntilIdle()
+
+        assertEquals(expectedAlbumId, albums.deletedAlbumId)
+        assertNull(viewModel.uiState.value.privateAlbum.myAlbum)
     }
 
     @Test
@@ -401,6 +739,48 @@ class RemoteMatcherViewModelTest {
         assertEquals(listOf("man", "woman"), viewModel.uiState.value.genderSettings?.lookingForGenderIds)
         assertFalse(viewModel.uiState.value.genderSettings?.genderVisible ?: true)
         assertEquals(callsBefore + 1, profiles.discoveryCalls)
+    }
+
+    @Test
+    fun lateGenderUpdateFromPreviousSessionCannotOverwriteNextUser() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-a"))
+        val gate = CompletableDeferred<Unit>()
+        val profiles = FakeProfileGateway(initialProfile = testProfile())
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = profiles,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+        profiles.updateGenderGate = gate
+        profiles.ignoreUpdateGenderCancellation = true
+
+        viewModel.updateGenderSettings(
+            genderIdentityIds = setOf("man"),
+            genderSelfDescription = "",
+            genderVisible = true,
+            lookingForGenderIds = setOf("woman"),
+        )
+        runCurrent()
+        val settingsB = GenderSettings(
+            genderIdentityIds = listOf("woman"),
+            genderVisible = true,
+            lookingForGenderIds = listOf("everyone"),
+            preferenceCursorVersion = 9,
+        )
+        profiles.genderSettings = settingsB
+        profiles.profile = testProfile().copy(
+            genderIdentityIds = settingsB.genderIdentityIds,
+            genderVisible = settingsB.genderVisible,
+        )
+        auth.session.value = MatcherSession.SignedIn("user-b")
+        runCurrent()
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(MatcherSession.SignedIn("user-b"), viewModel.uiState.value.session)
+        assertEquals(settingsB, viewModel.uiState.value.genderSettings)
+        assertEquals(listOf("woman"), viewModel.uiState.value.profile?.genderIdentityIds)
     }
 
     @Test
@@ -513,6 +893,15 @@ class RemoteMatcherViewModelTest {
         albums: FakePrivateAlbumGateway = FakePrivateAlbumGateway(),
         age: FakeAgeVerificationGateway = FakeAgeVerificationGateway(onboardingRequiredSnapshot()),
     ) = RemoteMatcherViewModel(auth, profiles, chat, albums, age)
+
+    private fun activeViewModel(
+        albums: FakePrivateAlbumGateway = FakePrivateAlbumGateway(),
+    ) = viewModel(
+        auth = FakeAuthGateway(MatcherSession.SignedIn("user-test")),
+        profiles = FakeProfileGateway(initialProfile = testProfile()),
+        albums = albums,
+        age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+    )
 }
 
 private class FakeAuthGateway(
@@ -544,6 +933,13 @@ private class FakeProfileGateway(
     var lastSubmittedPhoto: ByteArray? = null
     var profile: RemoteProfile? = initialProfile
     var discoveryCalls = 0
+    var firstPage = DiscoveryPage(emptyList(), null)
+    var nextPage = DiscoveryPage(emptyList(), null)
+    var failNextCursorAsStale = false
+    var nextPageGate: CompletableDeferred<Unit>? = null
+    var ignoreNextPageCancellation = false
+    var updateGenderGate: CompletableDeferred<Unit>? = null
+    var ignoreUpdateGenderCancellation = false
     var genderSettings = GenderSettings(
         genderIdentityIds = listOf("non_binary"),
         genderVisible = true,
@@ -574,20 +970,48 @@ private class FakeProfileGateway(
 
     override suspend fun discoveryPage(cursor: String?, pageSize: Int): DiscoveryPage {
         discoveryCalls += 1
-        return DiscoveryPage(emptyList(), null)
+        return firstPage
+    }
+
+    override suspend fun discoveryPage(
+        cursor: String,
+        preferenceCursorVersion: Long,
+        pageSize: Int,
+    ): DiscoveryPage {
+        discoveryCalls += 1
+        nextPageGate?.let { gate ->
+            if (ignoreNextPageCancellation) {
+                withContext(NonCancellable) { gate.await() }
+            } else {
+                gate.await()
+            }
+        }
+        if (failNextCursorAsStale) {
+            failNextCursorAsStale = false
+            error("DISCOVERY_CURSOR_STALE")
+        }
+        return nextPage
     }
 
     override suspend fun getGenderSettings(): GenderSettings = genderSettings
 
     override suspend fun updateGenderSettings(request: UpdateGenderSettingsRequest): GenderSettings {
-        genderSettings = GenderSettings(
-            genderIdentityIds = request.genderIdentityIds,
-            genderSelfDescription = request.genderSelfDescription,
-            genderVisible = request.genderVisible,
-            lookingForGenderIds = request.lookingForGenderIds,
-            preferenceCursorVersion = genderSettings.preferenceCursorVersion + 1,
-        )
-        return genderSettings
+        val update = suspend {
+            updateGenderGate?.await()
+            genderSettings = GenderSettings(
+                genderIdentityIds = request.genderIdentityIds,
+                genderSelfDescription = request.genderSelfDescription,
+                genderVisible = request.genderVisible,
+                lookingForGenderIds = request.lookingForGenderIds,
+                preferenceCursorVersion = genderSettings.preferenceCursorVersion + 1,
+            )
+            genderSettings
+        }
+        return if (ignoreUpdateGenderCancellation) {
+            withContext(NonCancellable) { update() }
+        } else {
+            update()
+        }
     }
 
     override suspend fun submitProfilePhoto(jpegBytes: ByteArray): RemoteProfile {
@@ -608,30 +1032,73 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     var grants = mutableListOf<PrivateAlbumGrant>()
     var sharedWithMe = mutableListOf<SharedPrivateAlbum>()
     var receivedContent: PrivateAlbumContent? = null
+    var switchAlbumAfterNextGet: PrivateAlbum? = null
+    var getMyPrivateAlbumGate: CompletableDeferred<Unit>? = null
+    var ignoreGetMyPrivateAlbumCancellation = false
+    var getPrivateAlbumGate: CompletableDeferred<Unit>? = null
+    var ignoreGetPrivateAlbumCancellation = false
     val bytesByItemId = mutableMapOf<String, ByteArray>()
-    var reportedOwnerId: String? = null
+    var reportedAlbumId: String? = null
+    var deletedAlbumId: String? = null
+    var uploadedAlbumId: String? = null
+    val uploadAttempts = mutableListOf<String>()
+    var createAlbumCalls = 0
+    var grantedAlbumId: String? = null
+    var revokedAlbumId: String? = null
+    var grantGate: CompletableDeferred<Unit>? = null
+    var ignoreGrantCancellation = false
+    var holdDownloadNonCancellable = false
+    var lastReturnedDownload: ByteArray? = null
+    private var heldDownload: Pair<String, Continuation<ByteArray>>? = null
 
     override suspend fun createPrivateAlbum(
         contentPolicyVersion: String,
         contentPolicyAccepted: Boolean,
     ): PrivateAlbum {
         check(contentPolicyAccepted)
+        createAlbumCalls += 1
         return album ?: PrivateAlbum("10000000-0000-4000-8000-000000000001", "active", 0).also {
             album = it
         }
     }
 
-    override suspend fun getMyPrivateAlbum(): PrivateAlbum? = album?.copy(itemCount = items.size)
+    override suspend fun getMyPrivateAlbum(): PrivateAlbum? {
+        getMyPrivateAlbumGate?.let { gate ->
+            if (ignoreGetMyPrivateAlbumCancellation) {
+                withContext(NonCancellable) { gate.await() }
+            } else {
+                gate.await()
+            }
+        }
+        val snapshot = album?.copy(itemCount = items.size)
+        switchAlbumAfterNextGet?.let { replacement ->
+            album = replacement
+            switchAlbumAfterNextGet = null
+        }
+        return snapshot
+    }
 
     override suspend fun getMyPrivateAlbumItems(): List<PrivateAlbumItem> = items.toList()
 
-    override suspend fun getPrivateAlbum(ownerId: String): PrivateAlbumContent? = receivedContent
+    override suspend fun getPrivateAlbum(albumId: String): PrivateAlbumContent? {
+        getPrivateAlbumGate?.let { gate ->
+            if (ignoreGetPrivateAlbumCancellation) {
+                withContext(NonCancellable) { gate.await() }
+            } else {
+                gate.await()
+            }
+        }
+        return receivedContent?.takeIf { it.albumId == albumId }
+    }
 
     override suspend fun getMyPrivateAlbumGrants(): List<PrivateAlbumGrant> = grants.toList()
 
     override suspend fun listPrivateAlbumsSharedWithMe(): List<SharedPrivateAlbum> = sharedWithMe.toList()
 
-    override suspend fun uploadPrivateAlbumImage(jpegBytes: ByteArray): PrivateAlbumItem {
+    override suspend fun uploadPrivateAlbumImage(albumId: String, jpegBytes: ByteArray): PrivateAlbumItem {
+        uploadAttempts += albumId
+        check(this.album?.albumId == albumId)
+        uploadedAlbumId = albumId
         val item = PrivateAlbumItem(
             itemId = "20000000-0000-4000-8000-${(items.size + 1).toString().padStart(12, '0')}",
             position = items.size,
@@ -642,24 +1109,53 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
         return item
     }
 
-    override suspend fun downloadPrivateAlbumImage(itemId: String): ByteArray =
-        requireNotNull(bytesByItemId[itemId]).copyOf()
+    override suspend fun downloadPrivateAlbumImage(itemId: String): ByteArray {
+        if (holdDownloadNonCancellable) {
+            return suspendCoroutine { continuation ->
+                check(heldDownload == null)
+                heldDownload = itemId to continuation
+            }
+        }
+        return requireNotNull(bytesByItemId[itemId]).copyOf()
+    }
 
-    override suspend fun grantPrivateAlbumAccess(recipientId: String): Boolean {
+    fun completeHeldDownload() {
+        val (itemId, continuation) = requireNotNull(heldDownload)
+        heldDownload = null
+        val bytes = requireNotNull(bytesByItemId[itemId]).copyOf()
+        lastReturnedDownload = bytes
+        continuation.resume(bytes)
+    }
+
+    override suspend fun grantPrivateAlbumAccess(albumId: String, recipientId: String): Boolean {
+        check(this.album?.albumId == albumId)
+        grantedAlbumId = albumId
+        grantGate?.let { gate ->
+            if (ignoreGrantCancellation) {
+                withContext(NonCancellable) { gate.await() }
+            } else {
+                gate.await()
+            }
+        }
         grants.removeAll { it.recipientId == recipientId }
         grants += PrivateAlbumGrant(recipientId, "Pessoa destino", "2026-07-31T12:00:00Z")
         return true
     }
 
-    override suspend fun revokePrivateAlbumAccess(recipientId: String): Boolean =
-        grants.removeAll { it.recipientId == recipientId }
+    override suspend fun revokePrivateAlbumAccess(albumId: String, recipientId: String): Boolean {
+        check(this.album?.albumId == albumId)
+        revokedAlbumId = albumId
+        return grants.removeAll { it.recipientId == recipientId }
+    }
 
     override suspend fun deletePrivateAlbumImage(itemId: String): Boolean {
         bytesByItemId.remove(itemId)
         return items.removeAll { it.itemId == itemId }
     }
 
-    override suspend fun deletePrivateAlbum(): Boolean {
+    override suspend fun deletePrivateAlbum(albumId: String): Boolean {
+        check(this.album?.albumId == albumId)
+        deletedAlbumId = albumId
         album = null
         items.clear()
         grants.clear()
@@ -668,13 +1164,13 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     }
 
     override suspend fun reportPrivateAlbum(
-        ownerId: String,
+        albumId: String,
         reason: PrivateAlbumReportReason,
         details: String,
         itemId: String?,
     ): String {
-        reportedOwnerId = ownerId
-        sharedWithMe.removeAll { it.ownerId == ownerId }
+        reportedAlbumId = albumId
+        sharedWithMe.removeAll { it.albumId == albumId }
         return "30000000-0000-4000-8000-000000000001"
     }
 }
@@ -748,6 +1244,14 @@ private fun activeVerifiedSnapshot() = AgeVerificationSnapshot(
     onboardingComplete = true,
     verificationMethod = "document",
     verifiedAt = "2026-07-31T12:00:00Z",
+)
+
+private fun syntheticSharedAlbum() = SharedPrivateAlbum(
+    albumId = "00000000-0000-4000-8000-000000000261",
+    ownerId = "00000000-0000-4000-8000-000000000262",
+    ownerDisplayName = "Pessoa destino",
+    itemCount = 1,
+    grantedAt = "2026-07-31T12:00:00Z",
 )
 
 private fun testProfile(

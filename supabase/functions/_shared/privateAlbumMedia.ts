@@ -1,3 +1,5 @@
+import { validatePrivateAlbumImage } from "./privateAlbumImage.ts";
+
 export const PRIVATE_ALBUM_ALLOWED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -14,6 +16,7 @@ export type AlbumAuthorizationResult =
 export type AlbumDownloadResult =
   | { kind: "ok"; bytes: Uint8Array; mimeType: string }
   | { kind: "not_found" }
+  | { kind: "invalid" }
   | { kind: "error" };
 
 export type PrivateAlbumMediaDependencies = {
@@ -111,6 +114,7 @@ function jsonError(
   status: number,
   cors: Headers,
   extraHeaders: Record<string, string> = {},
+  omitBody = false,
 ): Response {
   const headers = new Headers(cors);
   headers.set("content-type", "application/json; charset=utf-8");
@@ -120,7 +124,10 @@ function jsonError(
   for (const [name, value] of Object.entries(extraHeaders)) {
     headers.set(name, value);
   }
-  return new Response(JSON.stringify({ code }), { status, headers });
+  return new Response(omitBody ? null : JSON.stringify({ code }), {
+    status,
+    headers,
+  });
 }
 
 export function createPrivateAlbumMediaHandler(
@@ -130,14 +137,26 @@ export function createPrivateAlbumMediaHandler(
 
   return async (request: Request): Promise<Response> => {
     const cors = corsHeaders(request, allowedOrigins);
-    if (!cors.allowed) return jsonError("ACCESS_DENIED", 403, cors.headers);
+    const fail = (
+      code: string,
+      status: number,
+      extraHeaders: Record<string, string> = {},
+    ) =>
+      jsonError(
+        code,
+        status,
+        cors.headers,
+        extraHeaders,
+        request.method === "HEAD",
+      );
+    if (!cors.allowed) return fail("ACCESS_DENIED", 403);
 
     if (request.method === "OPTIONS") {
       const requestedMethod = request.headers.get(
         "access-control-request-method",
       );
       if (requestedMethod !== "GET" && requestedMethod !== "HEAD") {
-        return jsonError("METHOD_NOT_ALLOWED", 405, cors.headers, {
+        return fail("METHOD_NOT_ALLOWED", 405, {
           "allow": "GET, HEAD, OPTIONS",
         });
       }
@@ -145,7 +164,7 @@ export function createPrivateAlbumMediaHandler(
     }
 
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return jsonError("METHOD_NOT_ALLOWED", 405, cors.headers, {
+      return fail("METHOD_NOT_ALLOWED", 405, {
         "allow": "GET, HEAD, OPTIONS",
       });
     }
@@ -155,16 +174,16 @@ export function createPrivateAlbumMediaHandler(
       requestUrl.searchParams.size !== 1 ||
       !requestUrl.searchParams.has("item_id")
     ) {
-      return jsonError("INVALID_REQUEST", 400, cors.headers);
+      return fail("INVALID_REQUEST", 400);
     }
     const itemId = requestUrl.searchParams.get("item_id") ?? "";
     if (!UUID_PATTERN.test(itemId)) {
-      return jsonError("INVALID_REQUEST", 400, cors.headers);
+      return fail("INVALID_REQUEST", 400);
     }
 
     const accessToken = extractPrivateAlbumBearer(request);
     if (!accessToken) {
-      return jsonError("AUTH_REQUIRED", 401, cors.headers, {
+      return fail("AUTH_REQUIRED", 401, {
         "www-authenticate": "Bearer",
       });
     }
@@ -173,21 +192,21 @@ export function createPrivateAlbumMediaHandler(
     try {
       authorization = await dependencies.authorize(accessToken, itemId);
     } catch {
-      return jsonError("BACKEND_UNAVAILABLE", 503, cors.headers);
+      return fail("BACKEND_UNAVAILABLE", 503);
     }
     if (authorization.kind === "unauthenticated") {
-      return jsonError("AUTH_REQUIRED", 401, cors.headers, {
+      return fail("AUTH_REQUIRED", 401, {
         "www-authenticate": "Bearer",
       });
     }
     if (authorization.kind === "forbidden") {
-      return jsonError("ACCESS_DENIED", 403, cors.headers);
+      return fail("ACCESS_DENIED", 403);
     }
     if (authorization.kind === "not_found") {
-      return jsonError("NOT_FOUND", 404, cors.headers);
+      return fail("NOT_FOUND", 404);
     }
     if (authorization.kind === "error") {
-      return jsonError("BACKEND_UNAVAILABLE", 503, cors.headers);
+      return fail("BACKEND_UNAVAILABLE", 503);
     }
 
     const authorizedMimeType = normalizeMimeType(authorization.mimeType);
@@ -195,20 +214,23 @@ export function createPrivateAlbumMediaHandler(
       !PRIVATE_ALBUM_ALLOWED_MIME_TYPES.has(authorizedMimeType) ||
       !isSafeObjectPath(authorization.objectPath)
     ) {
-      return jsonError("BACKEND_UNAVAILABLE", 503, cors.headers);
+      return fail("BACKEND_UNAVAILABLE", 503);
     }
 
     let download: AlbumDownloadResult;
     try {
       download = await dependencies.download(authorization.objectPath);
     } catch {
-      return jsonError("BACKEND_UNAVAILABLE", 503, cors.headers);
+      return fail("BACKEND_UNAVAILABLE", 503);
     }
     if (download.kind === "not_found") {
-      return jsonError("NOT_FOUND", 404, cors.headers);
+      return fail("NOT_FOUND", 404);
+    }
+    if (download.kind === "invalid") {
+      return fail("UNSUPPORTED_MEDIA_TYPE", 415);
     }
     if (download.kind === "error") {
-      return jsonError("BACKEND_UNAVAILABLE", 503, cors.headers);
+      return fail("BACKEND_UNAVAILABLE", 503);
     }
 
     const storedMimeType = normalizeMimeType(download.mimeType);
@@ -216,7 +238,15 @@ export function createPrivateAlbumMediaHandler(
       !PRIVATE_ALBUM_ALLOWED_MIME_TYPES.has(storedMimeType) ||
       storedMimeType !== authorizedMimeType
     ) {
-      return jsonError("UNSUPPORTED_MEDIA_TYPE", 415, cors.headers);
+      return fail("UNSUPPORTED_MEDIA_TYPE", 415);
+    }
+
+    const image = validatePrivateAlbumImage(
+      download.bytes,
+      authorizedMimeType,
+    );
+    if (!image.valid) {
+      return fail("UNSUPPORTED_MEDIA_TYPE", 415);
     }
 
     const headers = new Headers(cors.headers);

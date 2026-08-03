@@ -12,13 +12,20 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.MyPrivateAlbumScreen
+import com.matcher.app.ui.ReceivedPrivateAlbumScreen
 import com.matcher.app.ui.PrivateAlbumPhotoUi
+import com.matcher.app.ui.PrivateAlbumImageDecoder
 import com.matcher.app.ui.PrivateAlbumWarningScreen
+import com.matcher.app.ui.SharedPrivateAlbumUi
+import com.matcher.app.ui.SharedPrivateAlbumsSection
 import com.matcher.app.ui.theme.MatcherTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class PrivateAlbumScreensTest {
@@ -120,6 +127,64 @@ class PrivateAlbumScreensTest {
         composeRule.onNodeWithText("10/10 fotos · acesso individual").assertIsDisplayed()
         composeRule.onNodeWithTag("add-private-album-photo").assertIsNotEnabled()
         composeRule.onNodeWithText("O álbum chegou ao limite de 10 fotos.").assertIsDisplayed()
+    }
+
+    @Test
+    fun sharedAlbumListOpensOwnerDirectlyWithoutDiscoveryProfile() {
+        val shared = SharedPrivateAlbumUi(
+            ownerId = "00000000-0000-4000-8000-000000000401",
+            ownerName = "Contato fora da grade",
+            itemCount = 2,
+        )
+        var opened: SharedPrivateAlbumUi? = null
+        composeRule.setContent {
+            MatcherTheme {
+                SharedPrivateAlbumsSection(
+                    albums = listOf(shared),
+                    onOpen = { opened = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("shared-private-albums").assertIsDisplayed()
+        composeRule.onNodeWithText("Contato fora da grade").assertIsDisplayed()
+        composeRule.onNodeWithTag("open-shared-private-album-${shared.ownerId}").performClick()
+        composeRule.runOnIdle { assertEquals(shared, opened) }
+    }
+
+    @Test
+    fun corruptPrivateImageIsRefusedAndRenderedAsUnavailable() {
+        val corrupt = PrivateAlbumPhotoUi(
+            id = "corrupt-synthetic",
+            position = 0,
+            bytes = byteArrayOf(0x13, 0x37),
+        )
+        composeRule.setContent {
+            MatcherTheme {
+                ReceivedPrivateAlbumScreen(
+                    ownerName = "Perfil sintético",
+                    photos = listOf(corrupt),
+                    loading = false,
+                    errorMessage = null,
+                    onBack = {},
+                    onReport = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("private-album-invalid-photo-${corrupt.id}").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Imagem privada indisponível").assertIsDisplayed()
+    }
+
+    @Test
+    fun secureDecoderAcceptsSmallImageAndRejectsCorruptPayload() = runBlocking {
+        val bitmap = PrivateAlbumImageDecoder.decode(SYNTHETIC_PIXEL_PNG.copyOf())
+
+        assertNotNull(bitmap)
+        assertEquals(1, bitmap?.width)
+        assertEquals(1, bitmap?.height)
+        bitmap?.recycle()
+        assertNull(PrivateAlbumImageDecoder.decode(byteArrayOf(0x13, 0x37)))
     }
 
     private companion object {

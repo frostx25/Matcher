@@ -1,7 +1,12 @@
 begin;
 
-set local search_path = public, extensions;
+set local role postgres;
+
+set local search_path = public, testing, extensions;
 select plan(39);
+
+-- Test-only access is transaction-scoped and rolled back at the end.
+grant usage on schema testing to anon, authenticated, service_role;
 
 select has_type(
     'public',
@@ -223,7 +228,7 @@ select throws_ok(
     'authenticated viewer cannot forge approval'
 );
 
-reset role;
+set local role postgres;
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
 
@@ -247,7 +252,7 @@ select lives_ok(
     'service role can approve exactly the current pending photo'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select submission.candidate_path, submission.status::text, profile.avatar_path
         from private.profile_photo_submissions submission
@@ -266,7 +271,7 @@ set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000402';
 set local "request.jwt.claim.role" = 'authenticated';
 
 select results_eq(
-    $$select avatar_path from public.profiles
+    $$select avatar_path from public.get_discovery_profiles(null, 20, null)
         where id = '00000000-0000-0000-0000-000000000401'::uuid$$,
     $$values (
         '00000000-0000-0000-0000-000000000401/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1.jpg'::text
@@ -324,7 +329,7 @@ select results_eq(
     'pending B stays private while A remains readable'
 );
 
-reset role;
+set local role postgres;
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
 select lives_ok(
@@ -336,7 +341,7 @@ select lives_ok(
     'moderator can block adult content on candidate B only'
 );
 
-reset role;
+set local role postgres;
 set local role authenticated;
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000401';
 set local "request.jwt.claim.role" = 'authenticated';
@@ -369,7 +374,7 @@ select lives_ok(
     'blocked B must return to pending before a new decision'
 );
 
-reset role;
+set local role postgres;
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
 select lives_ok(
@@ -381,7 +386,7 @@ select lives_ok(
     'approving current pending B promotes B without touching object A'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select submission.candidate_path, submission.status::text, profile.avatar_path
         from private.profile_photo_submissions submission
@@ -418,7 +423,7 @@ select results_eq(
     'non-owner cannot delete owner objects'
 );
 
-reset role;
+set local role postgres;
 select lives_ok(
     $$update public.accounts
          set status = 'suspended'

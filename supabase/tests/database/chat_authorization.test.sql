@@ -1,7 +1,12 @@
 begin;
 
-set local search_path = public, extensions;
+set local role postgres;
+
+set local search_path = public, testing, extensions;
 select plan(30);
+
+-- Test-only access is transaction-scoped and rolled back at the end.
+grant usage on schema testing to anon, authenticated, service_role;
 
 select has_table('public', 'accounts', 'accounts table exists');
 select has_table('public', 'conversations', 'conversations table exists');
@@ -277,7 +282,7 @@ select throws_ok(
     'reported user cannot continue messaging the reporter'
 );
 
-reset role;
+set local role postgres;
 update public.accounts
 set status = 'suspended',
     age_verification_status = 'not_started',

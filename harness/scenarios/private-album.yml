@@ -1,4 +1,4 @@
-version: 1
+version: 2
 domain: private-photo-album
 
 scenarios:
@@ -158,8 +158,10 @@ scenarios:
       - active_grants: 2
       - storage_object_count: 3
     when:
-      - owner_deletes_private_album: true
+      - owner_deletes_private_album_id: current-album-id
       - cleanup_retried: true
+      - replacement_album_created: true
+      - old_delete_request_retried: true
     then:
       - album_row_exists: false
       - album_item_rows_exist: false
@@ -167,6 +169,7 @@ scenarios:
       - storage_objects_exist: false
       - deleted_objects_are_readable: false
       - cleanup_retry_is_safe: true
+      - replacement_album_deleted_by_old_retry: false
 
   - id: ALBUM-011-account-state-denies-access
     name: Suspensão do titular ou destinatário encerra acesso
@@ -225,3 +228,112 @@ scenarios:
       - private_item_visible_in_discovery: false
       - public_profile_photo_status: pending
       - profile_photo_moderation_bypassed: false
+
+  - id: ALBUM-015-concurrent-block-wins-over-grant
+    name: Bloqueio e concessão concorrentes nunca deixam acesso restaurável
+    given:
+      - owner: user-target-01
+      - recipient: user-free
+      - grant_and_block_are_concurrent: true
+    when:
+      - execute_grant_and_block: true
+      - later_unblock_pair: true
+    then:
+      - active_grant_after_block: false
+      - access_after_unblock: false
+      - new_explicit_grant_required: true
+      - pair_decision_serialized_by: server
+
+  - id: ALBUM-016-concurrent-upload-delete-no-orphan
+    name: Upload e exclusão concorrentes não deixam objeto órfão
+    given:
+      - owner: user-target-01
+      - reserved_item_upload_in_progress: true
+      - album_delete_is_concurrent: true
+    when:
+      - commit_both_operations: true
+      - cleanup_retried: true
+    then:
+      - readable_orphan_object_exists: false
+      - object_without_item_or_cleanup_record_exists: false
+      - stale_upload_after_tombstone_accepted: false
+
+  - id: ALBUM-017-reported-access-and-evidence-preserved
+    name: Titular não reativa acesso denunciado nem apaga evidência vigente
+    given:
+      - owner: user-target-01
+      - reporter: user-free
+      - reporter_has_active_grant: true
+    when:
+      - reporter_reports_private_album: true
+      - owner_attempts_regrant: true
+      - owner_deletes_album: true
+      - owner_creates_replacement_album: true
+    then:
+      - reporter_access_restored: false
+      - moderation_case_exists: true
+      - restricted_evidence_preserved_until_retention_end: true
+      - sensitive_evidence_visible_to_authenticated: false
+      - replacement_album_created: true
+      - retained_album_visible_to_owner_or_recipients: false
+
+  - id: ALBUM-018-stale-client-response-discarded
+    name: Resposta antiga não repopula fotos depois de sair ou trocar de conta
+    given:
+      - recipient_album_download_in_progress: true
+      - current_session: user-free
+    when:
+      - user_closes_album_or_signs_out: true
+      - old_download_finishes_afterwards: true
+    then:
+      - private_bytes_in_ui: false
+      - album_screen_reopened: false
+      - old_response_discarded: true
+
+  - id: ALBUM-019-image-bomb-rejected
+    name: Mídia com dimensões perigosas é rejeitada mesmo com MIME permitido
+    given:
+      - declared_mime_type: image/jpeg
+      - encoded_size_within_limit: true
+      - decoded_pixel_count_exceeds_limit: true
+    when:
+      - finalize_or_download_private_image: true
+    then:
+      - bytes_delivered_to_android: false
+      - item_available_to_recipients: false
+      - decision_uses_actual_media_header: true
+
+  - id: ALBUM-020-cleanup-failure-does-not-starve-queue
+    name: Falha de um objeto aplica backoff sem bloquear os próximos
+    given:
+      - cleanup_queue: [object-failing, object-ready]
+      - object_failing_delete_returns_error: true
+    when:
+      - worker_claims_batch_with_leases: true
+      - worker_records_failure: true
+      - worker_runs_next_eligible_batch: true
+    then:
+      - object_failing_has_future_retry: true
+      - object_ready_is_deleted_and_confirmed: true
+      - stale_lease_cannot_confirm_or_fail: true
+      - queue_starvation: false
+
+  - id: ALBUM-021-stale-generation-action-is-bound
+    name: Ações atrasadas do álbum antigo não atingem o substituto
+    given:
+      - original_album_id: album-a
+      - replacement_album_id: album-b
+      - album_a_status: deleting
+      - album_b_status: active
+    when:
+      - delayed_reserve_for_album_a: true
+      - delayed_grant_for_album_a: true
+      - delayed_revoke_for_album_a: true
+      - delayed_report_for_album_a: true
+      - delayed_delete_retry_for_album_a: true
+    then:
+      - album_b_item_count_changed: false
+      - album_b_grants_changed: false
+      - report_created_for_album_b: false
+      - album_b_status: active
+      - every_mutation_revalidated_expected_album_id: true

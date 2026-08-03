@@ -6,11 +6,15 @@ import {
   type CleanupBatchResult,
   type CleanupConfirmationResult,
   type CleanupDeleteResult,
+  type CleanupFailureResult,
   createPrivateAlbumCleanupHandler,
+  type PrivateAlbumCleanupLease,
 } from "../_shared/privateAlbumCleanup.ts";
 
 type CleanupBatchRow = {
   object_path?: unknown;
+  lease_token?: unknown;
+  leased_until?: unknown;
 };
 
 type RpcError = {
@@ -68,14 +72,24 @@ async function getBatch(
   if (error) return mapBatchError(error);
   if (!Array.isArray(data)) return { kind: "error" };
 
-  const objectPaths: string[] = [];
+  const items: PrivateAlbumCleanupLease[] = [];
   for (const value of data) {
     if (!value || typeof value !== "object") return { kind: "error" };
     const row = value as CleanupBatchRow;
-    if (typeof row.object_path !== "string") return { kind: "error" };
-    objectPaths.push(row.object_path);
+    if (
+      typeof row.object_path !== "string" ||
+      typeof row.lease_token !== "string" ||
+      typeof row.leased_until !== "string"
+    ) {
+      return { kind: "error" };
+    }
+    items.push({
+      objectPath: row.object_path,
+      leaseToken: row.lease_token,
+      leasedUntil: row.leased_until,
+    });
   }
-  return { kind: "ok", objectPaths };
+  return { kind: "ok", items };
 }
 
 async function deleteObject(objectPath: string): Promise<CleanupDeleteResult> {
@@ -93,22 +107,44 @@ async function deleteObject(objectPath: string): Promise<CleanupDeleteResult> {
 
 async function confirmDeleted(
   objectPath: string,
+  leaseToken: string,
 ): Promise<CleanupConfirmationResult> {
   const service = getPrivilegedClient();
   if (!service) return { kind: "error" };
 
   const { data, error } = await service.rpc(
     "confirm_private_album_object_deleted",
-    { object_path: objectPath },
+    { object_path: objectPath, lease_token: leaseToken },
   );
   if (error) return { kind: "error" };
   return data === true ? { kind: "confirmed" } : { kind: "pending" };
+}
+
+async function failCleanup(
+  objectPath: string,
+  leaseToken: string,
+  failureCode: "DELETE_FAILED",
+): Promise<CleanupFailureResult> {
+  const service = getPrivilegedClient();
+  if (!service) return { kind: "error" };
+
+  const { data, error } = await service.rpc(
+    "fail_private_album_object_cleanup",
+    {
+      object_path: objectPath,
+      lease_token: leaseToken,
+      failure_code: failureCode,
+    },
+  );
+  if (error) return { kind: "error" };
+  return data === true ? { kind: "released" } : { kind: "stale" };
 }
 
 const handler = createPrivateAlbumCleanupHandler({
   getBatch,
   deleteObject,
   confirmDeleted,
+  failCleanup,
 });
 
 Deno.serve(handler);

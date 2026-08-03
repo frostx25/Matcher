@@ -2,7 +2,7 @@ import { extractPrivateAlbumBearer } from "./privateAlbumMedia.ts";
 
 export type PrivateAlbumDeleteAction =
   | { kind: "item"; itemId: string }
-  | { kind: "album" };
+  | { kind: "album"; albumId: string };
 
 export type DeleteAuthorizationResult<T> =
   | { kind: "authorized"; value: T }
@@ -12,6 +12,12 @@ export type DeleteAuthorizationResult<T> =
   | { kind: "error" };
 
 export type DeleteObjectResult = { kind: "ok" } | { kind: "error" };
+
+export type PrivateAlbumDeletionCandidate = {
+  objectPath: string;
+  deleteNow: boolean;
+  holdUntil: string | null;
+};
 
 export type AlbumFinalizationResult =
   | { kind: "finalized" }
@@ -24,13 +30,15 @@ export type PrivateAlbumDeleteDependencies = {
   markItem: (
     accessToken: string,
     itemId: string,
-  ) => Promise<DeleteAuthorizationResult<string>>;
+  ) => Promise<DeleteAuthorizationResult<PrivateAlbumDeletionCandidate>>;
   beginAlbum: (
     accessToken: string,
-  ) => Promise<DeleteAuthorizationResult<string[]>>;
+    albumId: string,
+  ) => Promise<DeleteAuthorizationResult<PrivateAlbumDeletionCandidate[]>>;
   removeObject: (objectPath: string) => Promise<DeleteObjectResult>;
   finalizeAlbum: (
     accessToken: string,
+    albumId: string,
   ) => Promise<AlbumFinalizationResult>;
 };
 
@@ -47,6 +55,8 @@ const PATH_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.(jpg|jpeg|png|webp)$/;
 const MAX_REQUEST_BODY_LENGTH = 256;
 const MAX_PRIVATE_ALBUM_ITEMS = 10;
+const POSTGRES_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 const RESPONSE_HEADERS: Readonly<Record<string, string>> = {
   "cache-control": "private, no-store, max-age=0",
   "pragma": "no-cache",
@@ -69,6 +79,27 @@ export function parsePrivateAlbumDeleteObjectPath(
     itemId: match[3],
     mimeType,
   };
+}
+
+function isValidHoldTimestamp(value: string | null): boolean {
+  return value === null ||
+    (value.length <= 64 && POSTGRES_TIMESTAMP.test(value) &&
+      Number.isFinite(Date.parse(value)));
+}
+
+function isValidDeletionCandidate(
+  candidate: unknown,
+): candidate is PrivateAlbumDeletionCandidate {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return false;
+  }
+  const value = candidate as Record<string, unknown>;
+  return typeof value.objectPath === "string" &&
+    typeof value.deleteNow === "boolean" &&
+    (value.holdUntil === null || typeof value.holdUntil === "string") &&
+    isValidHoldTimestamp(value.holdUntil as string | null) &&
+    ((value.deleteNow && value.holdUntil === null) ||
+      (!value.deleteNow && value.holdUntil !== null));
 }
 
 function deletedResponse(deleted: boolean, status: number): Response {
@@ -117,7 +148,11 @@ async function readDeleteAction(
   ) {
     return { kind: "item", itemId: record.item_id.toLowerCase() };
   }
-  if (record.delete_album === true) return { kind: "album" };
+  if (
+    typeof record.album_id === "string" && UUID_PATTERN.test(record.album_id)
+  ) {
+    return { kind: "album", albumId: record.album_id.toLowerCase() };
+  }
   return null;
 }
 
@@ -156,7 +191,7 @@ export function createPrivateAlbumDeleteHandler(
     if (!action) return deletedResponse(false, 400);
 
     if (action.kind === "item") {
-      let marked: DeleteAuthorizationResult<string>;
+      let marked: DeleteAuthorizationResult<PrivateAlbumDeletionCandidate>;
       try {
         marked = await dependencies.markItem(accessToken, action.itemId);
       } catch {
@@ -169,13 +204,19 @@ export function createPrivateAlbumDeleteHandler(
         return authorizationFailure(marked) ?? deletedResponse(false, 503);
       }
 
-      const parsed = parsePrivateAlbumDeleteObjectPath(marked.value);
+      const candidate = marked.value;
+      if (!isValidDeletionCandidate(candidate)) {
+        return deletedResponse(false, 503);
+      }
+      const parsed = parsePrivateAlbumDeleteObjectPath(candidate.objectPath);
       if (!parsed || parsed.itemId !== action.itemId) {
         return deletedResponse(false, 503);
       }
 
+      if (!candidate.deleteNow) return deletedResponse(true, 200);
+
       try {
-        const removal = await dependencies.removeObject(marked.value);
+        const removal = await dependencies.removeObject(candidate.objectPath);
         return removal.kind === "ok"
           ? deletedResponse(true, 200)
           : deletedResponse(false, 503);
@@ -184,9 +225,9 @@ export function createPrivateAlbumDeleteHandler(
       }
     }
 
-    let begun: DeleteAuthorizationResult<string[]>;
+    let begun: DeleteAuthorizationResult<PrivateAlbumDeletionCandidate[]>;
     try {
-      begun = await dependencies.beginAlbum(accessToken);
+      begun = await dependencies.beginAlbum(accessToken, action.albumId);
     } catch {
       return deletedResponse(false, 503);
     }
@@ -197,12 +238,24 @@ export function createPrivateAlbumDeleteHandler(
       return authorizationFailure(begun) ?? deletedResponse(false, 503);
     }
 
-    const parsedPaths = begun.value.map(parsePrivateAlbumDeleteObjectPath);
-    const firstPath = parsedPaths[0];
+    if (!Array.isArray(begun.value)) return deletedResponse(false, 503);
+
     if (
       begun.value.length > MAX_PRIVATE_ALBUM_ITEMS ||
-      new Set(begun.value).size !== begun.value.length ||
+      begun.value.some((candidate) => !isValidDeletionCandidate(candidate))
+    ) {
+      return deletedResponse(false, 503);
+    }
+    const parsedPaths = begun.value.map((candidate) =>
+      parsePrivateAlbumDeleteObjectPath(candidate.objectPath)
+    );
+    const firstPath = parsedPaths[0];
+    if (
+      new Set(begun.value.map((candidate) => candidate.objectPath)).size !==
+        begun.value.length ||
       parsedPaths.some((path) => path === null) ||
+      (firstPath !== undefined && firstPath !== null &&
+        firstPath.albumId !== action.albumId) ||
       (firstPath !== undefined && firstPath !== null &&
         parsedPaths.some((path) =>
           path === null || path.ownerId !== firstPath.ownerId ||
@@ -213,9 +266,10 @@ export function createPrivateAlbumDeleteHandler(
     }
 
     let removalFailed = false;
-    for (const path of begun.value) {
+    for (const candidate of begun.value) {
+      if (!candidate.deleteNow) continue;
       try {
-        const removal = await dependencies.removeObject(path);
+        const removal = await dependencies.removeObject(candidate.objectPath);
         if (removal.kind !== "ok") removalFailed = true;
       } catch {
         removalFailed = true;
@@ -225,7 +279,7 @@ export function createPrivateAlbumDeleteHandler(
 
     let finalized: AlbumFinalizationResult;
     try {
-      finalized = await dependencies.finalizeAlbum(accessToken);
+      finalized = await dependencies.finalizeAlbum(accessToken, action.albumId);
     } catch {
       return deletedResponse(false, 503);
     }

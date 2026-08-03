@@ -71,27 +71,27 @@ interface PrivateAlbumGateway {
 
     suspend fun getMyPrivateAlbumItems(): List<PrivateAlbumItem>
 
-    suspend fun getPrivateAlbum(ownerId: String): PrivateAlbumContent?
+    suspend fun getPrivateAlbum(albumId: String): PrivateAlbumContent?
 
     suspend fun getMyPrivateAlbumGrants(): List<PrivateAlbumGrant>
 
     suspend fun listPrivateAlbumsSharedWithMe(): List<SharedPrivateAlbum>
 
-    suspend fun uploadPrivateAlbumImage(jpegBytes: ByteArray): PrivateAlbumItem
+    suspend fun uploadPrivateAlbumImage(albumId: String, jpegBytes: ByteArray): PrivateAlbumItem
 
     /** Returns uncached bytes held only by the caller; no Storage path or signed URL is exposed. */
     suspend fun downloadPrivateAlbumImage(itemId: String): ByteArray
 
-    suspend fun grantPrivateAlbumAccess(recipientId: String): Boolean
+    suspend fun grantPrivateAlbumAccess(albumId: String, recipientId: String): Boolean
 
-    suspend fun revokePrivateAlbumAccess(recipientId: String): Boolean
+    suspend fun revokePrivateAlbumAccess(albumId: String, recipientId: String): Boolean
 
     suspend fun deletePrivateAlbumImage(itemId: String): Boolean
 
-    suspend fun deletePrivateAlbum(): Boolean
+    suspend fun deletePrivateAlbum(albumId: String): Boolean
 
     suspend fun reportPrivateAlbum(
-        ownerId: String,
+        albumId: String,
         reason: PrivateAlbumReportReason,
         details: String = "",
         itemId: String? = null,
@@ -136,22 +136,20 @@ class SupabasePrivateAlbumGateway(
             .decodeList()
     }
 
-    override suspend fun getPrivateAlbum(ownerId: String): PrivateAlbumContent? {
-        val normalizedOwnerId = requireUuid(ownerId, "INVALID_ALBUM_OWNER")
+    override suspend fun getPrivateAlbum(albumId: String): PrivateAlbumContent? {
+        val normalizedAlbumId = requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE")
         currentUserId()
+        val sharedAlbum = listPrivateAlbumsSharedWithMe()
+            .firstOrNull { it.albumId == normalizedAlbumId }
+            ?: return null
         val rows = client.postgrest.rpc(
             function = "get_private_album",
-            parameters = buildJsonObject { put("album_owner_id", normalizedOwnerId) },
+            parameters = buildJsonObject { put("target_album_id", normalizedAlbumId) },
         ).decodeList<PrivateAlbumAccessRow>()
-        val albumId = rows.firstOrNull()?.albumId
-            ?: listPrivateAlbumsSharedWithMe()
-                .firstOrNull { it.ownerId == normalizedOwnerId }
-                ?.albumId
-            ?: return null
-        require(rows.all { it.albumId == albumId }) { "INVALID_PRIVATE_ALBUM_RESPONSE" }
+        require(rows.all { it.albumId == normalizedAlbumId }) { "INVALID_PRIVATE_ALBUM_RESPONSE" }
         return PrivateAlbumContent(
-            albumId = albumId,
-            ownerId = normalizedOwnerId,
+            albumId = normalizedAlbumId,
+            ownerId = sharedAlbum.ownerId,
             items = rows.map { row ->
                 PrivateAlbumItem(
                     itemId = row.itemId,
@@ -173,17 +171,23 @@ class SupabasePrivateAlbumGateway(
             .decodeList()
     }
 
-    override suspend fun uploadPrivateAlbumImage(jpegBytes: ByteArray): PrivateAlbumItem {
+    override suspend fun uploadPrivateAlbumImage(
+        albumId: String,
+        jpegBytes: ByteArray,
+    ): PrivateAlbumItem {
         require(jpegBytes.size in 1..MAX_PRIVATE_ALBUM_IMAGE_BYTES) {
             "INVALID_PRIVATE_ALBUM_IMAGE_SIZE"
         }
         require(jpegBytes.isPrivateAlbumJpeg()) { "INVALID_PRIVATE_ALBUM_IMAGE_FORMAT" }
 
         val ownerId = currentUserId()
-        val album = requireNotNull(getMyPrivateAlbum()) { "PRIVATE_ALBUM_NOT_FOUND" }
+        val normalizedAlbumId = requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE")
         val reservation = client.postgrest.rpc(
             function = "reserve_private_album_item",
-            parameters = buildJsonObject { put("mime_type", PRIVATE_ALBUM_IMAGE_MIME_TYPE) },
+            parameters = buildJsonObject {
+                put("target_album_id", normalizedAlbumId)
+                put("mime_type", PRIVATE_ALBUM_IMAGE_MIME_TYPE)
+            },
         ).decodeSingle<ReservedPrivateAlbumItem>()
 
         val bucket = client.storage.from(PRIVATE_ALBUM_BUCKET)
@@ -191,7 +195,7 @@ class SupabasePrivateAlbumGateway(
             validateReservedPath(
                 objectPath = reservation.objectPath,
                 ownerId = ownerId,
-                albumId = album.albumId,
+                albumId = normalizedAlbumId,
                 itemId = reservation.itemId,
             )
             bucket.upload(reservation.objectPath, jpegBytes) {
@@ -234,40 +238,46 @@ class SupabasePrivateAlbumGateway(
         ) {
             method = HttpMethod.Get
             url.parameters.append("item_id", normalizedItemId)
-            headers.append(HttpHeaders.Accept, PRIVATE_ALBUM_IMAGE_MIME_TYPE)
+            headers.append(HttpHeaders.Accept, PRIVATE_ALBUM_ACCEPT_TYPES)
             headers.append(HttpHeaders.CacheControl, "no-store")
             headers.append(HttpHeaders.Pragma, "no-cache")
         }
         check(response.status.value in 200..299) { "PRIVATE_ALBUM_NOT_AVAILABLE" }
-        check(
-            response.headers[HttpHeaders.ContentType]
-                ?.substringBefore(';')
-                ?.trim()
-                ?.equals(PRIVATE_ALBUM_IMAGE_MIME_TYPE, ignoreCase = true) == true,
-        ) { "INVALID_PRIVATE_ALBUM_MEDIA_RESPONSE" }
+        val mediaType = response.headers[HttpHeaders.ContentType]
+            ?.substringBefore(';')
+            ?.trim()
+            ?.lowercase()
+        check(mediaType in PRIVATE_ALBUM_DOWNLOAD_MIME_TYPES) {
+            "INVALID_PRIVATE_ALBUM_MEDIA_RESPONSE"
+        }
         check(
             response.headers[HttpHeaders.CacheControl]
                 ?.contains("no-store", ignoreCase = true) == true,
         ) { "INVALID_PRIVATE_ALBUM_CACHE_POLICY" }
         val bytes = response.body<ByteArray>()
-        check(bytes.size in 1..MAX_PRIVATE_ALBUM_IMAGE_BYTES && bytes.isPrivateAlbumJpeg()) {
+        check(
+            bytes.size in 1..MAX_PRIVATE_ALBUM_IMAGE_BYTES &&
+                mediaType != null && bytes.matchesPrivateAlbumMediaType(mediaType),
+        ) {
             "INVALID_PRIVATE_ALBUM_MEDIA_RESPONSE"
         }
         return bytes
     }
 
-    override suspend fun grantPrivateAlbumAccess(recipientId: String): Boolean =
+    override suspend fun grantPrivateAlbumAccess(albumId: String, recipientId: String): Boolean =
         client.postgrest.rpc(
             function = "grant_private_album_access",
             parameters = buildJsonObject {
+                put("target_album_id", requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE"))
                 put("recipient_id", requireUuid(recipientId, "INVALID_ALBUM_RECIPIENT"))
             },
         ).decodeAs()
 
-    override suspend fun revokePrivateAlbumAccess(recipientId: String): Boolean =
+    override suspend fun revokePrivateAlbumAccess(albumId: String, recipientId: String): Boolean =
         client.postgrest.rpc(
             function = "revoke_private_album_access",
             parameters = buildJsonObject {
+                put("target_album_id", requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE"))
                 put("recipient_id", requireUuid(recipientId, "INVALID_ALBUM_RECIPIENT"))
             },
         ).decodeAs()
@@ -280,15 +290,17 @@ class SupabasePrivateAlbumGateway(
         )
     }
 
-    override suspend fun deletePrivateAlbum(): Boolean {
+    override suspend fun deletePrivateAlbum(albumId: String): Boolean {
         currentUserId()
         return invokePrivateAlbumDelete(
-            buildJsonObject { put("delete_album", true) },
+            buildJsonObject {
+                put("album_id", requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE"))
+            },
         )
     }
 
     override suspend fun reportPrivateAlbum(
-        ownerId: String,
+        albumId: String,
         reason: PrivateAlbumReportReason,
         details: String,
         itemId: String?,
@@ -298,7 +310,7 @@ class SupabasePrivateAlbumGateway(
         val caseId = client.postgrest.rpc(
             function = "report_private_album",
             parameters = buildJsonObject {
-                put("album_owner_id", requireUuid(ownerId, "INVALID_ALBUM_OWNER"))
+                put("target_album_id", requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE"))
                 put("report_reason", reason.remoteValue)
                 put("report_details", normalizedDetails)
                 put("album_item_id", itemId?.let { requireUuid(it, "INVALID_PRIVATE_ALBUM_ITEM") })
@@ -349,6 +361,8 @@ class SupabasePrivateAlbumGateway(
         const val PRIVATE_ALBUM_MEDIA_FUNCTION = "private-album-media"
         const val PRIVATE_ALBUM_DELETE_FUNCTION = "private-album-delete"
         const val PRIVATE_ALBUM_IMAGE_MIME_TYPE = "image/jpeg"
+        const val PRIVATE_ALBUM_ACCEPT_TYPES = "image/jpeg, image/png, image/webp"
+        val PRIVATE_ALBUM_DOWNLOAD_MIME_TYPES = setOf("image/jpeg", "image/png", "image/webp")
         const val MAX_PRIVATE_ALBUM_IMAGE_BYTES = 5 * 1024 * 1024
         const val MAX_CONTENT_POLICY_VERSION_LENGTH = 40
         const val MAX_REPORT_DETAILS_LENGTH = 1_000
@@ -384,6 +398,21 @@ private data class PrivateAlbumDeleteResponse(
 private fun ByteArray.isPrivateAlbumJpeg(): Boolean =
     size >= 4 && this[0] == 0xFF.toByte() && this[1] == 0xD8.toByte() &&
         this[size - 2] == 0xFF.toByte() && this[size - 1] == 0xD9.toByte()
+
+internal fun ByteArray.matchesPrivateAlbumMediaType(mediaType: String): Boolean = when (mediaType.lowercase()) {
+    "image/jpeg" -> isPrivateAlbumJpeg()
+    "image/png" -> size >= 8 &&
+        this[0] == 0x89.toByte() && this[1] == 0x50.toByte() &&
+        this[2] == 0x4E.toByte() && this[3] == 0x47.toByte() &&
+        this[4] == 0x0D.toByte() && this[5] == 0x0A.toByte() &&
+        this[6] == 0x1A.toByte() && this[7] == 0x0A.toByte()
+    "image/webp" -> size >= 12 &&
+        this[0] == 'R'.code.toByte() && this[1] == 'I'.code.toByte() &&
+        this[2] == 'F'.code.toByte() && this[3] == 'F'.code.toByte() &&
+        this[8] == 'W'.code.toByte() && this[9] == 'E'.code.toByte() &&
+        this[10] == 'B'.code.toByte() && this[11] == 'P'.code.toByte()
+    else -> false
+}
 
 private fun requireUuid(value: String, errorCode: String): String =
     runCatching { UUID.fromString(value).toString() }

@@ -5,6 +5,10 @@ import {
   createPrivateAlbumMediaHandler,
   parseAllowedOrigins,
 } from "../_shared/privateAlbumMedia.ts";
+import {
+  PRIVATE_ALBUM_MAX_IMAGE_BYTES,
+  PRIVATE_ALBUM_MIN_IMAGE_BYTES,
+} from "../_shared/privateAlbumImage.ts";
 
 type AuthorizationRow = {
   object_path?: unknown;
@@ -98,6 +102,12 @@ async function download(objectPath: string): Promise<AlbumDownloadResult> {
       ? String(error.statusCode)
       : "";
     return status === "404" ? { kind: "not_found" } : { kind: "error" };
+  }
+  if (
+    data.size < PRIVATE_ALBUM_MIN_IMAGE_BYTES ||
+    data.size > PRIVATE_ALBUM_MAX_IMAGE_BYTES
+  ) {
+    return { kind: "invalid" };
   }
   return {
     kind: "ok",

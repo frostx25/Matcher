@@ -403,6 +403,10 @@ private fun RemoteHome(
     when {
         state.privateAlbum.destination == PrivateAlbumDestination.Mine -> {
             val grantIds = state.privateAlbum.myGrants.mapTo(mutableSetOf()) { it.recipientId }
+            val albumTargets = buildMap {
+                state.privateAlbum.knownRecipients.forEach { (id, name) -> put(id, name) }
+                state.discovery.profiles.forEach { remote -> put(remote.id, remote.displayName) }
+            }.filterKeys { it != currentUserId }
             MyPrivateAlbumScreen(
                 albumExists = state.privateAlbum.myAlbum != null,
                 photos = state.privateAlbum.visibleItems.mapNotNull { item ->
@@ -413,13 +417,13 @@ private fun RemoteHome(
                 grants = state.privateAlbum.myGrants.map {
                     PrivateAlbumGrantUi(it.recipientId, it.displayName)
                 },
-                targets = state.discovery.profiles.map {
+                targets = albumTargets.map { (id, displayName) ->
                     PrivateAlbumTargetUi(
-                        id = it.id,
-                        displayName = it.displayName,
-                        shared = it.id in grantIds,
+                        id = id,
+                        displayName = displayName,
+                        shared = id in grantIds,
                     )
-                },
+                }.sortedBy { it.displayName.lowercase() },
                 loading = state.privateAlbum.loading,
                 errorMessage = state.errorMessage,
                 onBack = viewModel::closePrivateAlbum,
@@ -543,6 +547,16 @@ private fun RemoteHome(
                     onPhotoError = viewModel::reportProfilePhotoPreparationFailure,
                     onUpdateGenderSettings = viewModel::updateGenderSettings,
                     onOpenPrivateAlbum = viewModel::openMyPrivateAlbum,
+                    sharedPrivateAlbums = state.privateAlbum.sharedWithMe.map { shared ->
+                        SharedPrivateAlbumUi(
+                            ownerId = shared.ownerId,
+                            ownerName = shared.ownerDisplayName,
+                            itemCount = shared.itemCount,
+                        )
+                    },
+                    onOpenSharedPrivateAlbum = { shared ->
+                        viewModel.openReceivedPrivateAlbum(shared.ownerId, shared.ownerName)
+                    },
                     onSignOut = viewModel::signOut,
                     modifier = Modifier.padding(padding),
                 )
@@ -699,6 +713,8 @@ private fun RemoteProfileScreen(
     onPhotoError: () -> Unit,
     onUpdateGenderSettings: (Set<String>, String, Boolean, Set<String>) -> Unit,
     onOpenPrivateAlbum: () -> Unit,
+    sharedPrivateAlbums: List<SharedPrivateAlbumUi>,
+    onOpenSharedPrivateAlbum: (SharedPrivateAlbumUi) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -875,6 +891,11 @@ private fun RemoteProfileScreen(
                 modifier = Modifier.fillMaxWidth().testTag("open-my-private-album"),
             ) { Text("Gerenciar álbum privado") }
         }
+
+        SharedPrivateAlbumsSection(
+            albums = sharedPrivateAlbums,
+            onOpen = onOpenSharedPrivateAlbum,
+        )
 
         Column(
             Modifier

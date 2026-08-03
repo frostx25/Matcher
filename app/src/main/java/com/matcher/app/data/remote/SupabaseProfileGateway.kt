@@ -2,7 +2,6 @@ package com.matcher.app.data.remote
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
 import io.ktor.http.ContentType
@@ -134,10 +133,11 @@ class SupabaseProfileGateway(
     }
 
     override suspend fun currentProfile(): RemoteProfile? {
-        val userId = client.auth.currentUserOrNull()?.id ?: return null
-        val profile = client.from("profiles").select {
-            filter { eq("id", userId) }
-        }.decodeList<RemoteProfile>().singleOrNull()
+        if (client.auth.currentUserOrNull() == null) return null
+        val profile = client.postgrest
+            .rpc("get_my_profile")
+            .decodeList<RemoteProfile>()
+            .singleOrNull()
             ?: return null
         val settings = getGenderSettings()
         val photoState = client.postgrest

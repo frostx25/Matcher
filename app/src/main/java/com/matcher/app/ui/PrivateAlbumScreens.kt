@@ -1,6 +1,5 @@
 package com.matcher.app.ui
 
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,10 +39,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,6 +76,59 @@ internal data class PrivateAlbumTargetUi(
     val displayName: String,
     val shared: Boolean,
 )
+
+internal data class SharedPrivateAlbumUi(
+    val ownerId: String,
+    val ownerName: String,
+    val itemCount: Int,
+)
+
+@Composable
+internal fun SharedPrivateAlbumsSection(
+    albums: List<SharedPrivateAlbumUi>,
+    onOpen: (SharedPrivateAlbumUi) -> Unit,
+) {
+    if (albums.isEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(20.dp))
+            .padding(16.dp)
+            .testTag("shared-private-albums"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            "Álbuns liberados para você",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "Abra diretamente daqui, mesmo que a pessoa não esteja na descoberta.",
+            color = TextSecondary,
+            fontSize = 12.sp,
+        )
+        albums.sortedBy { it.ownerName.lowercase() }.forEach { album ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(album.ownerName, color = MaterialTheme.colorScheme.onBackground)
+                    Text(
+                        "${album.itemCount} ${if (album.itemCount == 1) "foto" else "fotos"}",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
+                OutlinedButton(
+                    onClick = { onOpen(album) },
+                    modifier = Modifier.testTag("open-shared-private-album-${album.ownerId}"),
+                ) { Text("Abrir") }
+            }
+        }
+    }
+}
 
 @Composable
 internal fun MyPrivateAlbumScreen(
@@ -484,8 +537,15 @@ private fun PrivatePhotoTile(
     canDelete: Boolean,
     onDelete: () -> Unit,
 ) {
-    val bitmap = remember(photo.id, photo.bytes) {
-        BitmapFactory.decodeByteArray(photo.bytes, 0, photo.bytes.size)?.asImageBitmap()
+    val bitmap by produceState<android.graphics.Bitmap?>(
+        initialValue = null,
+        key1 = photo.id,
+        key2 = photo.bytes,
+    ) {
+        value = PrivateAlbumImageDecoder.decode(photo.bytes)
+    }
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.recycle() }
     }
     Box(
         modifier = Modifier
@@ -496,11 +556,20 @@ private fun PrivatePhotoTile(
     ) {
         if (bitmap != null) {
             Image(
-                bitmap = bitmap,
+                bitmap = requireNotNull(bitmap).asImageBitmap(),
                 contentDescription = "Foto privada",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("private-album-invalid-photo-${photo.id}"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Lock, "Imagem privada indisponível", tint = TextSecondary)
+            }
         }
         if (canDelete) {
             IconButton(

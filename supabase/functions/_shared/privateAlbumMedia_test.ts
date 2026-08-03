@@ -6,6 +6,17 @@ import {
   parseAllowedOrigins,
 } from "./privateAlbumMedia.ts";
 
+function fromBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+const validWebp = fromBase64(
+  "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/v89",
+);
+const validPng = fromBase64(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+);
+
 function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -56,7 +67,7 @@ function testHandler(options: {
       return Promise.resolve(
         options.download ?? {
           kind: "ok",
-          bytes: new Uint8Array([1, 2, 3]),
+          bytes: validWebp,
           mimeType: "image/webp",
         },
       );
@@ -188,14 +199,23 @@ Deno.test("GET returns private bytes with strict no-store headers", async () => 
   assertEquals(response.headers.get("location"), null, "no redirect");
   assertEquals(response.redirected, false, "response is not redirected");
   const bytes = new Uint8Array(await response.arrayBuffer());
-  assertEquals(bytes.join(","), "1,2,3", "exact private bytes");
+  assertEquals(bytes.length, validWebp.length, "exact private byte count");
+  assertEquals(
+    bytes.every((value, index) => value === validWebp[index]),
+    true,
+    "exact private bytes",
+  );
 });
 
 Deno.test("HEAD reauthorizes and downloads metadata but emits no body", async () => {
   const counters = { authorize: 0, download: 0 };
   const response = await testHandler({ counters })(authorizedRequest("HEAD"));
   assertEquals(response.status, 200, "head status");
-  assertEquals(response.headers.get("content-length"), "3", "head length");
+  assertEquals(
+    response.headers.get("content-length"),
+    validWebp.length.toString(),
+    "head length",
+  );
   assertEquals((await response.arrayBuffer()).byteLength, 0, "head body");
   assertEquals(counters.authorize, 1, "head reauthorizes");
   assertEquals(counters.download, 1, "head validates current object");
@@ -248,6 +268,49 @@ Deno.test("only matching JPEG PNG or WebP MIME reaches the response", async () =
     "UNSUPPORTED_MEDIA_TYPE",
     "safe mismatch code",
   );
+});
+
+Deno.test("matching metadata cannot disguise a different binary format", async () => {
+  const response = await testHandler({
+    download: {
+      kind: "ok",
+      bytes: validPng,
+      mimeType: "image/webp",
+    },
+  })(authorizedRequest());
+  const body = await response.text();
+  assertEquals(response.status, 415, "magic mismatch status");
+  assert(body.includes("UNSUPPORTED_MEDIA_TYPE"), "sanitized media code");
+  assert(!body.includes("owner/album"), "path is not disclosed");
+  assert(!body.includes(validPng.join(",")), "bytes are not disclosed");
+});
+
+Deno.test("invalid storage size is sanitized before a response", async () => {
+  const response = await testHandler({ download: { kind: "invalid" } })(
+    authorizedRequest(),
+  );
+  assertEquals(response.status, 415, "invalid size status");
+  assertEquals(
+    (await response.json()).code,
+    "UNSUPPORTED_MEDIA_TYPE",
+    "safe invalid size code",
+  );
+});
+
+Deno.test("HEAD validates invalid bytes and never emits an error body", async () => {
+  const counters = { authorize: 0, download: 0 };
+  const response = await testHandler({
+    counters,
+    download: {
+      kind: "ok",
+      bytes: validPng.slice(0, validPng.length - 1),
+      mimeType: "image/webp",
+    },
+  })(authorizedRequest("HEAD"));
+  assertEquals(response.status, 415, "invalid HEAD status");
+  assertEquals((await response.arrayBuffer()).byteLength, 0, "no error body");
+  assertEquals(counters.authorize, 1, "HEAD reauthorizes");
+  assertEquals(counters.download, 1, "HEAD validates downloaded bytes");
 });
 
 Deno.test("storage missing and failure map to sanitized statuses", async () => {

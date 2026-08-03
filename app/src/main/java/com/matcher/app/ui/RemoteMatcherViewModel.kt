@@ -55,11 +55,13 @@ sealed interface PrivateAlbumDestination {
     data object Mine : PrivateAlbumDestination
 
     data class Warning(
+        val albumId: String,
         val ownerId: String,
         val ownerName: String,
     ) : PrivateAlbumDestination
 
     data class Received(
+        val albumId: String,
         val ownerId: String,
         val ownerName: String,
     ) : PrivateAlbumDestination
@@ -70,10 +72,22 @@ data class PrivateAlbumUiState(
     val myAlbum: PrivateAlbum? = null,
     val myItems: List<PrivateAlbumItem> = emptyList(),
     val myGrants: List<PrivateAlbumGrant> = emptyList(),
+    val knownRecipients: Map<String, String> = emptyMap(),
     val sharedWithMe: List<SharedPrivateAlbum> = emptyList(),
     val visibleItems: List<PrivateAlbumItem> = emptyList(),
     val visibleBytes: Map<String, ByteArray> = emptyMap(),
     val loading: Boolean = false,
+)
+
+private data class PrivateAlbumWorkToken(
+    val sessionGeneration: Long,
+    val albumGeneration: Long,
+    val userId: String,
+)
+
+private data class SessionWorkToken(
+    val generation: Long,
+    val userId: String?,
 )
 
 data class RemoteMatcherUiState(
@@ -114,19 +128,30 @@ class RemoteMatcherViewModel(
 
     private var realtimeJob: Job? = null
     private var ageVerificationJob: Job? = null
+    private var profilePhotoJob: Job? = null
+    private var discoveryPaginationJob: Job? = null
+    private var privateAlbumJob: Job? = null
+    private var privateAlbumSummaryJob: Job? = null
     private var albumRevalidationJob: Job? = null
+    private var sessionGeneration = 0L
+    private var privateAlbumGeneration = 0L
     private var lastAgeVerificationReturnSignal = 0
     private var ageVerificationRefreshPending = false
 
     init {
         viewModelScope.launch {
             authGateway.session.collectLatest { session ->
+                sessionGeneration += 1
+                invalidatePrivateAlbumWork()
+                wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
                 realtimeJob?.cancel()
                 realtimeJob = null
+                discoveryPaginationJob?.cancel()
+                discoveryPaginationJob = null
                 ageVerificationJob?.cancel()
                 ageVerificationJob = null
-                albumRevalidationJob?.cancel()
-                albumRevalidationJob = null
+                profilePhotoJob?.cancel()
+                profilePhotoJob = null
                 ageVerificationRefreshPending = false
                 mutableState.update { current ->
                     current.copy(
@@ -155,7 +180,9 @@ class RemoteMatcherViewModel(
                         },
                     )
                 }
-                if (session is MatcherSession.SignedIn) refreshSignedInData()
+                if (session is MatcherSession.SignedIn) {
+                    refreshSignedInData(currentSessionWorkToken())
+                }
             }
         }
     }
@@ -166,8 +193,9 @@ class RemoteMatcherViewModel(
             setError("Digite um e-mail válido.")
             return
         }
-        launchRemote {
+        launchRemote { token ->
             authGateway.requestEmailOtp(normalized)
+            ensureSessionWorkIsCurrent(token)
             mutableState.update { it.copy(otpRequestedFor = normalized) }
         }
     }
@@ -178,8 +206,9 @@ class RemoteMatcherViewModel(
             setError("Digite o código de 6 dígitos.")
             return
         }
-        launchRemote(errorMessage = "Código inválido ou expirado. Solicite um novo código.") {
+        launchRemote(errorMessage = "Código inválido ou expirado. Solicite um novo código.") { token ->
             authGateway.verifyEmailOtp(email, normalizedToken)
+            ensureSessionWorkIsCurrent(token)
         }
     }
 
@@ -198,7 +227,7 @@ class RemoteMatcherViewModel(
         lookingForGenderIds: Set<String>,
         termsAccepted: Boolean,
     ) {
-        launchRemote {
+        launchRemote { token ->
             profileGateway.completeOnboarding(
                 CompleteOnboardingRequest(
                     birthYear = birthYear,
@@ -214,7 +243,8 @@ class RemoteMatcherViewModel(
                     lookingForGenderIds = lookingForGenderIds.sorted(),
                 ),
             )
-            refreshSignedInData()
+            ensureSessionWorkIsCurrent(token)
+            refreshSignedInData(token)
         }
     }
 
@@ -229,7 +259,7 @@ class RemoteMatcherViewModel(
             setError("Escolha sua identidade e quem você quer encontrar.")
             return
         }
-        launchRemote {
+        launchRemote { token ->
             val settings = profileGateway.updateGenderSettings(
                 UpdateGenderSettingsRequest(
                     genderIdentityIds = genderIdentityIds.sorted(),
@@ -238,7 +268,9 @@ class RemoteMatcherViewModel(
                     lookingForGenderIds = lookingForGenderIds.sorted(),
                 ),
             )
+            ensureSessionWorkIsCurrent(token)
             val discovery = profileGateway.discoveryPage()
+            ensureSessionWorkIsCurrent(token)
             mutableState.update { state ->
                 state.copy(
                     genderSettings = settings,
@@ -257,26 +289,43 @@ class RemoteMatcherViewModel(
         val state = mutableState.value
         val cursor = state.discovery.nextCursor ?: return
         if (!requireActiveAccount() || state.loading) return
-        launchRemote {
-            val nextPage = try {
-                profileGateway.discoveryPage(
-                    cursor = cursor,
-                    preferenceCursorVersion = state.discovery.preferenceCursorVersion,
-                )
+        val token = currentSessionWorkToken()
+        mutableState.update { it.copy(loading = true, errorMessage = null) }
+        discoveryPaginationJob = viewModelScope.launch {
+            var restartedAfterStaleCursor = false
+            try {
+                val nextPage = try {
+                    profileGateway.discoveryPage(
+                        cursor = cursor,
+                        preferenceCursorVersion = state.discovery.preferenceCursorVersion,
+                    )
+                } catch (error: Exception) {
+                    if (error.matcherCode() == "DISCOVERY_CURSOR_STALE") {
+                        ensureSessionWorkIsCurrent(token)
+                        restartedAfterStaleCursor = true
+                        profileGateway.discoveryPage()
+                    } else {
+                        throw error
+                    }
+                }
+                ensureSessionWorkIsCurrent(token)
+                mutableState.update { current ->
+                    if (!isSessionWorkCurrent(token)) return@update current
+                    val profiles = if (restartedAfterStaleCursor) {
+                        nextPage.profiles
+                    } else {
+                        (current.discovery.profiles + nextPage.profiles).distinctBy(RemoteProfile::id)
+                    }
+                    current.copy(discovery = nextPage.copy(profiles = profiles))
+                }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error.matcherCode() == "DISCOVERY_CURSOR_STALE") {
-                    profileGateway.discoveryPage()
-                } else {
-                    throw error
+                if (isSessionWorkCurrent(token)) setError(error.toUserMessage())
+            } finally {
+                if (isSessionWorkCurrent(token)) {
+                    mutableState.update { it.copy(loading = false) }
                 }
-            }
-            mutableState.update { current ->
-                val profiles = if (nextPage.profiles.firstOrNull()?.id == current.discovery.profiles.firstOrNull()?.id) {
-                    nextPage.profiles
-                } else {
-                    (current.discovery.profiles + nextPage.profiles).distinctBy(RemoteProfile::id)
-                }
-                current.copy(discovery = nextPage.copy(profiles = profiles))
             }
         }
     }
@@ -337,28 +386,35 @@ class RemoteMatcherViewModel(
             return
         }
 
+        val token = currentSessionWorkToken()
         mutableState.update { it.copy(verificationLoading = true, errorMessage = null) }
         ageVerificationJob = viewModelScope.launch {
             try {
                 val session = ageVerificationGateway.createSession()
+                ensureSessionWorkIsCurrent(token)
                 check(isTrustedAgeVerificationUrl(session.verificationUrl)) {
                     "AGE_PROVIDER_INVALID_URL"
                 }
                 mutableState.update {
                     it.copy(ageVerificationStatus = AgeVerificationStatus.Pending)
                 }
+                ensureSessionWorkIsCurrent(token)
                 effectChannel.send(RemoteMatcherEffect.OpenAgeVerification(session.verificationUrl))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                if (error.matcherCode() == "ALREADY_VERIFIED") {
-                    refreshSignedInData()
-                } else {
-                    setError(error.toUserMessage())
+                if (isSessionWorkCurrent(token)) {
+                    if (error.matcherCode() == "ALREADY_VERIFIED") {
+                        refreshSignedInData(token)
+                    } else {
+                        setError(error.toUserMessage())
+                    }
                 }
             } finally {
-                mutableState.update { it.copy(verificationLoading = false) }
-                runPendingAgeVerificationRefresh()
+                if (isSessionWorkCurrent(token)) {
+                    mutableState.update { it.copy(verificationLoading = false) }
+                    runPendingAgeVerificationRefresh()
+                }
             }
         }
     }
@@ -371,17 +427,23 @@ class RemoteMatcherViewModel(
         ) {
             return
         }
+        val token = currentSessionWorkToken()
         mutableState.update { it.copy(photoLoading = true, errorMessage = null) }
-        viewModelScope.launch {
+        profilePhotoJob = viewModelScope.launch {
             try {
                 val profile = profileGateway.submitProfilePhoto(jpegBytes)
-                mutableState.update { it.copy(profile = profile) }
+                ensureSessionWorkIsCurrent(token)
+                mutableState.update { current ->
+                    if (isSessionWorkCurrent(token)) current.copy(profile = profile) else current
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                setError(error.toProfilePhotoMessage())
+                if (isSessionWorkCurrent(token)) setError(error.toProfilePhotoMessage())
             } finally {
-                mutableState.update { it.copy(photoLoading = false) }
+                if (isSessionWorkCurrent(token)) {
+                    mutableState.update { it.copy(photoLoading = false) }
+                }
             }
         }
     }
@@ -392,6 +454,7 @@ class RemoteMatcherViewModel(
 
     fun openMyPrivateAlbum() {
         if (!requireActiveAccount()) return
+        beginPrivateAlbumDestination()
         mutableState.update {
             it.copy(
                 privateAlbum = it.privateAlbum.copy(
@@ -407,20 +470,43 @@ class RemoteMatcherViewModel(
 
     fun refreshPrivateAlbumAccess() {
         if (!requireActiveAccount() || mutableState.value.privateAlbum.loading) return
-        runPrivateAlbumOperation { loadPrivateAlbumSummaries() }
+        runPrivateAlbumOperation { token -> loadPrivateAlbumSummaries(token) }
+    }
+
+    fun openReceivedPrivateAlbum(album: SharedPrivateAlbum) {
+        val current = mutableState.value.privateAlbum.sharedWithMe.firstOrNull {
+            it.albumId == album.albumId && it.ownerId == album.ownerId
+        }
+        if (current == null) {
+            setError("Este álbum privado não está mais liberado para você.")
+            return
+        }
+        showReceivedPrivateAlbumWarning(current)
     }
 
     fun openReceivedPrivateAlbum(ownerId: String, ownerName: String) {
         if (!requireActiveAccount()) return
-        val accessExists = mutableState.value.privateAlbum.sharedWithMe.any { it.ownerId == ownerId }
-        if (!accessExists) {
+        val access = mutableState.value.privateAlbum.sharedWithMe.firstOrNull { it.ownerId == ownerId }
+        if (access == null) {
             setError("Este álbum privado não está mais liberado para você.")
             return
         }
+        showReceivedPrivateAlbumWarning(
+            access.copy(ownerDisplayName = access.ownerDisplayName.ifBlank { ownerName }),
+        )
+    }
+
+    private fun showReceivedPrivateAlbumWarning(access: SharedPrivateAlbum) {
+        if (!requireActiveAccount()) return
+        beginPrivateAlbumDestination()
         mutableState.update {
             it.copy(
                 privateAlbum = it.privateAlbum.copy(
-                    destination = PrivateAlbumDestination.Warning(ownerId, ownerName),
+                    destination = PrivateAlbumDestination.Warning(
+                        albumId = access.albumId,
+                        ownerId = access.ownerId,
+                        ownerName = access.ownerDisplayName,
+                    ),
                     visibleItems = emptyList(),
                     visibleBytes = emptyMap(),
                 ),
@@ -432,46 +518,36 @@ class RemoteMatcherViewModel(
     fun revealReceivedPrivateAlbum() {
         val warning = mutableState.value.privateAlbum.destination as? PrivateAlbumDestination.Warning
             ?: return
-        if (mutableState.value.privateAlbum.loading) return
-        mutableState.update {
-            it.copy(
-                privateAlbum = it.privateAlbum.copy(loading = true),
-                errorMessage = null,
-            )
-        }
-        viewModelScope.launch {
-            try {
-                val content = privateAlbumGateway.getPrivateAlbum(warning.ownerId)
-                    ?: error("PRIVATE_ALBUM_NOT_FOUND")
-                val bytes = downloadPrivateAlbumItems(content.items)
-                mutableState.update {
-                    it.copy(
-                        privateAlbum = it.privateAlbum.copy(
-                            destination = PrivateAlbumDestination.Received(
-                                ownerId = warning.ownerId,
-                                ownerName = warning.ownerName,
-                            ),
-                            visibleItems = content.items,
-                            visibleBytes = bytes,
-                        ),
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                clearVisiblePrivateAlbum()
-                setError(error.toPrivateAlbumMessage())
-            } finally {
-                mutableState.update {
-                    it.copy(privateAlbum = it.privateAlbum.copy(loading = false))
-                }
+        runPrivateAlbumOperation { token ->
+            val content = privateAlbumGateway.getPrivateAlbum(warning.albumId)
+                ?: error("PRIVATE_ALBUM_NOT_FOUND")
+            check(content.albumId == warning.albumId && content.ownerId == warning.ownerId) {
+                "INVALID_PRIVATE_ALBUM_RESPONSE"
             }
+            ensurePrivateAlbumWorkIsCurrent(token)
+            val bytes = downloadPrivateAlbumItems(content.items, token)
+            if (!isPrivateAlbumWorkCurrent(token) ||
+                mutableState.value.privateAlbum.destination != warning
+            ) {
+                wipePrivateAlbumBytes(bytes)
+                return@runPrivateAlbumOperation
+            }
+            replaceVisiblePrivateAlbumBytes(
+                token = token,
+                destination = PrivateAlbumDestination.Received(
+                    albumId = warning.albumId,
+                    ownerId = warning.ownerId,
+                    ownerName = warning.ownerName,
+                ),
+                items = content.items,
+                bytes = bytes,
+            )
         }
     }
 
     fun closePrivateAlbum() {
-        albumRevalidationJob?.cancel()
-        albumRevalidationJob = null
+        invalidatePrivateAlbumWork()
+        wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
         mutableState.update {
             it.copy(
                 privateAlbum = it.privateAlbum.copy(
@@ -489,28 +565,34 @@ class RemoteMatcherViewModel(
         val received = mutableState.value.privateAlbum.destination as? PrivateAlbumDestination.Received
             ?: return
         if (albumRevalidationJob?.isActive == true) return
+        val token = currentPrivateAlbumWorkToken() ?: return
         albumRevalidationJob = viewModelScope.launch {
             try {
-                val content = privateAlbumGateway.getPrivateAlbum(received.ownerId)
+                val content = privateAlbumGateway.getPrivateAlbum(received.albumId)
                     ?: error("PRIVATE_ALBUM_NOT_AVAILABLE")
+                check(content.albumId == received.albumId && content.ownerId == received.ownerId) {
+                    "INVALID_PRIVATE_ALBUM_RESPONSE"
+                }
+                ensurePrivateAlbumWorkIsCurrent(token)
                 val currentIds = mutableState.value.privateAlbum.visibleItems.map { it.itemId }
                 val serverIds = content.items.map { it.itemId }
                 if (currentIds != serverIds) {
-                    val bytes = downloadPrivateAlbumItems(content.items)
-                    mutableState.update {
-                        it.copy(
-                            privateAlbum = it.privateAlbum.copy(
-                                visibleItems = content.items,
-                                visibleBytes = bytes,
-                            ),
-                        )
+                    val bytes = downloadPrivateAlbumItems(content.items, token)
+                    if (!isPrivateAlbumWorkCurrent(token) ||
+                        mutableState.value.privateAlbum.destination != received
+                    ) {
+                        wipePrivateAlbumBytes(bytes)
+                        return@launch
                     }
+                    replaceVisiblePrivateAlbumBytes(token, received, content.items, bytes)
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                clearVisiblePrivateAlbum()
-                setError(error.toPrivateAlbumMessage())
+                if (isPrivateAlbumWorkCurrent(token)) {
+                    clearVisiblePrivateAlbum()
+                    setError(error.toPrivateAlbumMessage())
+                }
             }
         }
     }
@@ -521,47 +603,64 @@ class RemoteMatcherViewModel(
             state.privateAlbum.destination != PrivateAlbumDestination.Mine ||
             state.privateAlbum.loading
         ) {
+            jpegBytes.fill(0)
             return
         }
-        runPrivateAlbumOperation {
-            privateAlbumGateway.createPrivateAlbum(
-                contentPolicyVersion = PrivateAlbumContentPolicyVersion,
-                contentPolicyAccepted = true,
-            )
-            privateAlbumGateway.uploadPrivateAlbumImage(jpegBytes)
-            loadMyPrivateAlbum(includeBytes = true)
+        val displayedAlbumId = state.privateAlbum.myAlbum?.albumId
+        val scheduled = runPrivateAlbumOperation { token ->
+            try {
+                val targetAlbumId = displayedAlbumId ?: privateAlbumGateway.createPrivateAlbum(
+                    contentPolicyVersion = PrivateAlbumContentPolicyVersion,
+                    contentPolicyAccepted = true,
+                ).albumId
+                ensurePrivateAlbumWorkIsCurrent(token)
+                privateAlbumGateway.uploadPrivateAlbumImage(targetAlbumId, jpegBytes)
+                ensurePrivateAlbumWorkIsCurrent(token)
+                loadMyPrivateAlbum(includeBytes = true, token = token)
+            } finally {
+                jpegBytes.fill(0)
+            }
         }
+        if (!scheduled) jpegBytes.fill(0)
     }
 
     fun deletePrivateAlbumPhoto(itemId: String) {
         if (mutableState.value.privateAlbum.destination != PrivateAlbumDestination.Mine) return
-        runPrivateAlbumOperation {
+        runPrivateAlbumOperation { token ->
             privateAlbumGateway.deletePrivateAlbumImage(itemId)
-            loadMyPrivateAlbum(includeBytes = true)
+            ensurePrivateAlbumWorkIsCurrent(token)
+            loadMyPrivateAlbum(includeBytes = true, token = token)
         }
     }
 
     fun togglePrivateAlbumGrant(recipientId: String, currentlyShared: Boolean) {
         if (!requireActiveAccount()) return
-        runPrivateAlbumOperation {
+        val expectedAlbumId = mutableState.value.privateAlbum.myAlbum?.albumId ?: return
+        runPrivateAlbumOperation { token ->
             if (currentlyShared) {
-                privateAlbumGateway.revokePrivateAlbumAccess(recipientId)
+                privateAlbumGateway.revokePrivateAlbumAccess(expectedAlbumId, recipientId)
             } else {
-                privateAlbumGateway.grantPrivateAlbumAccess(recipientId)
+                privateAlbumGateway.grantPrivateAlbumAccess(expectedAlbumId, recipientId)
             }
-            loadPrivateAlbumSummaries()
+            ensurePrivateAlbumWorkIsCurrent(token)
+            loadPrivateAlbumSummaries(token)
         }
     }
 
     fun deleteMyPrivateAlbum() {
-        if (mutableState.value.privateAlbum.destination != PrivateAlbumDestination.Mine) return
-        runPrivateAlbumOperation {
-            privateAlbumGateway.deletePrivateAlbum()
-            mutableState.update {
+        val albumState = mutableState.value.privateAlbum
+        if (albumState.destination != PrivateAlbumDestination.Mine) return
+        val expectedAlbumId = albumState.myAlbum?.albumId ?: return
+        runPrivateAlbumOperation { token ->
+            privateAlbumGateway.deletePrivateAlbum(expectedAlbumId)
+            ensurePrivateAlbumWorkIsCurrent(token)
+            wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
+            updatePrivateAlbumState(token) {
                 it.copy(
                     privateAlbum = PrivateAlbumUiState(
                         destination = PrivateAlbumDestination.Mine,
                         sharedWithMe = it.privateAlbum.sharedWithMe,
+                        knownRecipients = it.privateAlbum.knownRecipients,
                     ),
                 )
             }
@@ -571,14 +670,17 @@ class RemoteMatcherViewModel(
     fun reportPrivateAlbum(details: String) {
         val received = mutableState.value.privateAlbum.destination as? PrivateAlbumDestination.Received
             ?: return
-        runPrivateAlbumOperation {
+        val sessionToken = currentSessionWorkToken()
+        runPrivateAlbumOperation { token ->
             privateAlbumGateway.reportPrivateAlbum(
-                ownerId = received.ownerId,
+                albumId = received.albumId,
                 reason = PrivateAlbumReportReason.InappropriatePhoto,
                 details = details,
             )
+            ensurePrivateAlbumWorkIsCurrent(token)
+            ensureSessionWorkIsCurrent(sessionToken)
             clearVisiblePrivateAlbum()
-            refreshSignedInData()
+            refreshSignedInData(sessionToken)
         }
     }
 
@@ -589,13 +691,16 @@ class RemoteMatcherViewModel(
             ageVerificationRefreshPending = true
             return
         }
+        val token = currentSessionWorkToken()
         mutableState.update { it.copy(verificationLoading = true, errorMessage = null) }
         ageVerificationJob = viewModelScope.launch {
             try {
-                refreshSignedInData()
+                refreshSignedInData(token)
             } finally {
-                mutableState.update { it.copy(verificationLoading = false) }
-                runPendingAgeVerificationRefresh()
+                if (isSessionWorkCurrent(token)) {
+                    mutableState.update { it.copy(verificationLoading = false) }
+                    runPendingAgeVerificationRefresh()
+                }
             }
         }
     }
@@ -609,33 +714,53 @@ class RemoteMatcherViewModel(
 
     fun startConversation(recipientId: String, message: String, onOpened: (String) -> Unit) {
         if (!requireActiveAccount()) return
-        launchRemote {
+        launchRemote { token ->
             when (val result = chatGateway.startConversation(recipientId, message)) {
                 is StartConversationResult.Created -> {
-                    reloadChat()
+                    ensureSessionWorkIsCurrent(token)
+                    reloadChat(token)
+                    ensureSessionWorkIsCurrent(token)
                     onOpened(result.conversation.id)
                 }
                 is StartConversationResult.Existing -> {
-                    reloadChat()
+                    ensureSessionWorkIsCurrent(token)
+                    reloadChat(token)
+                    ensureSessionWorkIsCurrent(token)
                     onOpened(result.conversation.id)
                 }
-                is StartConversationResult.QuotaExhausted -> setError(
-                    "Seu limite de novas conversas foi atingido. Conversas existentes continuam liberadas.",
-                )
-                is StartConversationResult.InvalidMessage -> setError("Escreva uma mensagem válida antes de enviar.")
-                is StartConversationResult.Blocked -> setError("Este contato não está disponível.")
+                is StartConversationResult.QuotaExhausted -> {
+                    ensureSessionWorkIsCurrent(token)
+                    setError("Seu limite de novas conversas foi atingido. Conversas existentes continuam liberadas.")
+                }
+                is StartConversationResult.InvalidMessage -> {
+                    ensureSessionWorkIsCurrent(token)
+                    setError("Escreva uma mensagem válida antes de enviar.")
+                }
+                is StartConversationResult.Blocked -> {
+                    ensureSessionWorkIsCurrent(token)
+                    setError("Este contato não está disponível.")
+                }
             }
         }
     }
 
     fun sendMessage(conversationId: String, body: String): Boolean {
         if (body.isBlank() || !requireActiveAccount()) return false
-        launchRemote {
+        launchRemote { token ->
             when (chatGateway.sendMessage(conversationId, body)) {
-                is SendMessageResult.Sent -> reloadChat()
-                SendMessageResult.InvalidMessage -> setError("Escreva uma mensagem válida antes de enviar.")
+                is SendMessageResult.Sent -> {
+                    ensureSessionWorkIsCurrent(token)
+                    reloadChat(token)
+                }
+                SendMessageResult.InvalidMessage -> {
+                    ensureSessionWorkIsCurrent(token)
+                    setError("Escreva uma mensagem válida antes de enviar.")
+                }
                 SendMessageResult.NotAllowed,
-                SendMessageResult.NotFound -> setError("Esta conversa não está mais disponível.")
+                SendMessageResult.NotFound -> {
+                    ensureSessionWorkIsCurrent(token)
+                    setError("Esta conversa não está mais disponível.")
+                }
             }
         }
         return true
@@ -643,10 +768,12 @@ class RemoteMatcherViewModel(
 
     fun blockUser(targetUserId: String, onBlocked: () -> Unit) {
         if (!requireActiveAccount()) return
-        launchRemote {
+        launchRemote { token ->
             if (chatGateway.blockUser(targetUserId)) {
+                ensureSessionWorkIsCurrent(token)
+                invalidatePrivateAlbumWork()
                 clearVisiblePrivateAlbum()
-                refreshSignedInData()
+                refreshSignedInData(token)
                 onBlocked()
             } else {
                 setError("Não foi possível bloquear este perfil.")
@@ -662,15 +789,24 @@ class RemoteMatcherViewModel(
         onReported: () -> Unit,
     ) {
         if (!requireActiveAccount()) return
-        launchRemote {
+        launchRemote { token ->
             chatGateway.reportUser(targetUserId, reason, details, conversationId)
+            ensureSessionWorkIsCurrent(token)
+            invalidatePrivateAlbumWork()
             clearVisiblePrivateAlbum()
-            refreshSignedInData()
+            refreshSignedInData(token)
             onReported()
         }
     }
 
     fun signOut() {
+        discoveryPaginationJob?.cancel()
+        discoveryPaginationJob = null
+        profilePhotoJob?.cancel()
+        profilePhotoJob = null
+        invalidatePrivateAlbumWork()
+        wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
+        mutableState.update { it.copy(privateAlbum = PrivateAlbumUiState()) }
         launchRemote { authGateway.signOut() }
     }
 
@@ -678,7 +814,8 @@ class RemoteMatcherViewModel(
         mutableState.update { it.copy(errorMessage = null) }
     }
 
-    private suspend fun refreshSignedInData() {
+    private suspend fun refreshSignedInData(token: SessionWorkToken) {
+        ensureSessionWorkIsCurrent(token)
         val previousState = mutableState.value
         val canPreserveActiveScreen = previousState.signedInStage == SignedInStage.Active &&
             previousState.profile != null
@@ -702,6 +839,7 @@ class RemoteMatcherViewModel(
         }
         try {
             val access = ageVerificationGateway.getStatus()
+            ensureSessionWorkIsCurrent(token)
             mutableState.update { it.copy(ageVerificationStatus = access.verificationStatus) }
 
             when {
@@ -722,7 +860,7 @@ class RemoteMatcherViewModel(
                     mutableState.update { it.copy(signedInStage = SignedInStage.Onboarding) }
                 }
 
-                access.accountStatus == "active" -> loadActiveAccount()
+                access.accountStatus == "active" -> loadActiveAccount(token)
 
                 else -> {
                     realtimeJob?.cancel()
@@ -738,30 +876,38 @@ class RemoteMatcherViewModel(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            mutableState.update {
-                if (canPreserveActiveScreen) {
-                    it.copy(
-                        signedInStage = SignedInStage.Active,
-                        errorMessage = error.toUserMessage(),
-                    )
-                } else {
-                    it.copy(
-                        signedInStage = SignedInStage.Unavailable,
-                        errorMessage = error.toUserMessage(),
-                    )
+            if (isSessionWorkCurrent(token)) {
+                mutableState.update {
+                    if (canPreserveActiveScreen) {
+                        it.copy(
+                            signedInStage = SignedInStage.Active,
+                            errorMessage = error.toUserMessage(),
+                        )
+                    } else {
+                        it.copy(
+                            signedInStage = SignedInStage.Unavailable,
+                            errorMessage = error.toUserMessage(),
+                        )
+                    }
                 }
             }
         } finally {
-            mutableState.update { it.copy(loading = false) }
+            if (isSessionWorkCurrent(token)) {
+                mutableState.update { it.copy(loading = false) }
+            }
         }
     }
 
-    private suspend fun loadActiveAccount() {
+    private suspend fun loadActiveAccount(token: SessionWorkToken) {
         val profile = profileGateway.currentProfile()
             ?: error("ACTIVE_PROFILE_MISSING")
+        ensureSessionWorkIsCurrent(token)
         val genderSettings = profileGateway.getGenderSettings()
+        ensureSessionWorkIsCurrent(token)
         val discovery = profileGateway.discoveryPage()
+        ensureSessionWorkIsCurrent(token)
         val chat = chatGateway.snapshot()
+        ensureSessionWorkIsCurrent(token)
         realtimeJob?.cancel()
         realtimeJob = null
         mutableState.update {
@@ -779,98 +925,168 @@ class RemoteMatcherViewModel(
                 ) false else it.ageVerificationConsentGranted,
             )
         }
-        loadPrivateAlbumSummaries()
+        startPrivateAlbumSummaryLoad()
         realtimeJob = viewModelScope.launch {
             try {
-                chatGateway.realtimeInvalidations().collect { reloadChat() }
+                chatGateway.realtimeInvalidations().collect { reloadChat(token) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                setError(error.toUserMessage())
+                if (isSessionWorkCurrent(token)) setError(error.toUserMessage())
             }
         }
     }
 
-    private suspend fun reloadChat() {
+    private suspend fun reloadChat(token: SessionWorkToken = currentSessionWorkToken()) {
         if (mutableState.value.signedInStage != SignedInStage.Active) return
         val chat = chatGateway.snapshot()
-        mutableState.update { it.copy(chat = chat) }
+        ensureSessionWorkIsCurrent(token)
+        mutableState.update { current ->
+            if (isSessionWorkCurrent(token)) current.copy(chat = chat) else current
+        }
     }
 
     private fun reloadMyPrivateAlbum(includeBytes: Boolean) {
-        runPrivateAlbumOperation { loadMyPrivateAlbum(includeBytes) }
+        runPrivateAlbumOperation { token -> loadMyPrivateAlbum(includeBytes, token) }
     }
 
-    private suspend fun loadMyPrivateAlbum(includeBytes: Boolean) {
-        loadPrivateAlbumSummaries()
+    private fun startPrivateAlbumSummaryLoad() {
+        val token = currentPrivateAlbumWorkToken() ?: return
+        privateAlbumSummaryJob?.cancel()
+        privateAlbumSummaryJob = viewModelScope.launch {
+            try {
+                loadPrivateAlbumSummaries(token)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (isPrivateAlbumWorkCurrent(token)) setError(error.toPrivateAlbumMessage())
+            }
+        }
+    }
+
+    private suspend fun loadMyPrivateAlbum(
+        includeBytes: Boolean,
+        token: PrivateAlbumWorkToken,
+    ) {
+        loadPrivateAlbumSummaries(token)
+        ensurePrivateAlbumWorkIsCurrent(token)
         val albumState = mutableState.value.privateAlbum
         val bytes = if (includeBytes) {
-            downloadPrivateAlbumItems(albumState.myItems)
+            downloadPrivateAlbumItems(albumState.myItems, token)
         } else {
             emptyMap()
         }
-        mutableState.update {
-            it.copy(
-                privateAlbum = it.privateAlbum.copy(
-                    visibleItems = if (includeBytes) albumState.myItems else emptyList(),
-                    visibleBytes = bytes,
-                ),
-            )
+        if (!isPrivateAlbumWorkCurrent(token) ||
+            mutableState.value.privateAlbum.destination != PrivateAlbumDestination.Mine
+        ) {
+            wipePrivateAlbumBytes(bytes)
+            return
         }
+        replaceVisiblePrivateAlbumBytes(
+            token = token,
+            destination = PrivateAlbumDestination.Mine,
+            items = if (includeBytes) albumState.myItems else emptyList(),
+            bytes = bytes,
+        )
     }
 
-    private suspend fun loadPrivateAlbumSummaries() {
-        val album = privateAlbumGateway.getMyPrivateAlbum()
-        val items = if (album == null) emptyList() else privateAlbumGateway.getMyPrivateAlbumItems()
-        val grants = if (album == null) emptyList() else privateAlbumGateway.getMyPrivateAlbumGrants()
-        val sharedWithMe = privateAlbumGateway.listPrivateAlbumsSharedWithMe()
-        mutableState.update {
-            it.copy(
-                privateAlbum = it.privateAlbum.copy(
-                    myAlbum = album,
-                    myItems = items,
-                    myGrants = grants,
-                    sharedWithMe = sharedWithMe,
-                ),
-            )
+    private suspend fun loadPrivateAlbumSummaries(token: PrivateAlbumWorkToken) {
+        repeat(2) { attempt ->
+            val album = privateAlbumGateway.getMyPrivateAlbum()
+            ensurePrivateAlbumWorkIsCurrent(token)
+            val items = if (album == null) emptyList() else privateAlbumGateway.getMyPrivateAlbumItems()
+            ensurePrivateAlbumWorkIsCurrent(token)
+            val grants = if (album == null) emptyList() else privateAlbumGateway.getMyPrivateAlbumGrants()
+            ensurePrivateAlbumWorkIsCurrent(token)
+            val sharedWithMe = privateAlbumGateway.listPrivateAlbumsSharedWithMe()
+            ensurePrivateAlbumWorkIsCurrent(token)
+            val validatedAlbum = privateAlbumGateway.getMyPrivateAlbum()
+            ensurePrivateAlbumWorkIsCurrent(token)
+            if (album?.albumId != validatedAlbum?.albumId) {
+                if (attempt == 0) return@repeat
+                error("PRIVATE_ALBUM_CHANGED")
+            }
+            updatePrivateAlbumState(token) {
+                val knownRecipients = buildMap {
+                    putAll(it.privateAlbum.knownRecipients)
+                    grants.forEach { grant -> put(grant.recipientId, grant.displayName) }
+                    sharedWithMe.forEach { shared -> put(shared.ownerId, shared.ownerDisplayName) }
+                }
+                it.copy(
+                    privateAlbum = it.privateAlbum.copy(
+                        myAlbum = validatedAlbum,
+                        myItems = items,
+                        myGrants = grants,
+                        knownRecipients = knownRecipients,
+                        sharedWithMe = sharedWithMe,
+                    ),
+                )
+            }
+            return
         }
     }
 
     private suspend fun downloadPrivateAlbumItems(
         items: List<PrivateAlbumItem>,
+        token: PrivateAlbumWorkToken,
     ): Map<String, ByteArray> {
         val bytes = linkedMapOf<String, ByteArray>()
-        for (item in items.filter { it.itemStatus == "available" }.sortedBy { it.position }) {
-            bytes[item.itemId] = privateAlbumGateway.downloadPrivateAlbumImage(item.itemId)
+        var unownedDownload: ByteArray? = null
+        try {
+            for (item in items.filter { it.itemStatus == "available" }.sortedBy { it.position }) {
+                ensurePrivateAlbumWorkIsCurrent(token)
+                val downloaded = privateAlbumGateway.downloadPrivateAlbumImage(item.itemId)
+                unownedDownload = downloaded
+                if (downloaded.size !in 1..MaxPrivateAlbumImageBytes) {
+                    downloaded.fill(0)
+                    error("INVALID_PRIVATE_ALBUM_IMAGE_SIZE")
+                }
+                ensurePrivateAlbumWorkIsCurrent(token)
+                bytes[item.itemId] = downloaded
+                unownedDownload = null
+            }
+            return bytes
+        } catch (error: Throwable) {
+            unownedDownload?.fill(0)
+            wipePrivateAlbumBytes(bytes)
+            throw error
         }
-        return bytes
     }
 
-    private fun runPrivateAlbumOperation(block: suspend () -> Unit) {
-        if (mutableState.value.privateAlbum.loading) return
+    private fun runPrivateAlbumOperation(
+        block: suspend (PrivateAlbumWorkToken) -> Unit,
+    ): Boolean {
+        if (mutableState.value.privateAlbum.loading) return false
+        val token = currentPrivateAlbumWorkToken() ?: return false
         mutableState.update {
             it.copy(
                 privateAlbum = it.privateAlbum.copy(loading = true),
                 errorMessage = null,
             )
         }
-        viewModelScope.launch {
+        privateAlbumJob = viewModelScope.launch {
             try {
-                block()
+                block(token)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                if (error.matcherCode() in PrivateAlbumAccessErrors) clearVisiblePrivateAlbum()
-                setError(error.toPrivateAlbumMessage())
+                if (isPrivateAlbumWorkCurrent(token)) {
+                    if (error.matcherCode() in PrivateAlbumAccessErrors) clearVisiblePrivateAlbum()
+                    setError(error.toPrivateAlbumMessage())
+                }
             } finally {
-                mutableState.update {
-                    it.copy(privateAlbum = it.privateAlbum.copy(loading = false))
+                if (isPrivateAlbumWorkCurrent(token)) {
+                    mutableState.update {
+                        it.copy(privateAlbum = it.privateAlbum.copy(loading = false))
+                    }
                 }
             }
         }
+        return true
     }
 
     private fun clearVisiblePrivateAlbum() {
+        wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
         mutableState.update {
             it.copy(
                 privateAlbum = it.privateAlbum.copy(
@@ -882,10 +1098,109 @@ class RemoteMatcherViewModel(
         }
     }
 
+    private fun beginPrivateAlbumDestination() {
+        invalidatePrivateAlbumWork()
+        wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
+        mutableState.update {
+            it.copy(
+                privateAlbum = it.privateAlbum.copy(
+                    destination = null,
+                    visibleItems = emptyList(),
+                    visibleBytes = emptyMap(),
+                    loading = false,
+                ),
+            )
+        }
+    }
+
+    private fun invalidatePrivateAlbumWork() {
+        privateAlbumGeneration += 1
+        privateAlbumJob?.cancel()
+        privateAlbumJob = null
+        privateAlbumSummaryJob?.cancel()
+        privateAlbumSummaryJob = null
+        albumRevalidationJob?.cancel()
+        albumRevalidationJob = null
+        mutableState.update {
+            it.copy(privateAlbum = it.privateAlbum.copy(loading = false))
+        }
+    }
+
+    private fun currentPrivateAlbumWorkToken(): PrivateAlbumWorkToken? {
+        val userId = (mutableState.value.session as? MatcherSession.SignedIn)?.userId ?: return null
+        return PrivateAlbumWorkToken(
+            sessionGeneration = sessionGeneration,
+            albumGeneration = privateAlbumGeneration,
+            userId = userId,
+        )
+    }
+
+    private fun isPrivateAlbumWorkCurrent(token: PrivateAlbumWorkToken): Boolean {
+        val currentUserId = (mutableState.value.session as? MatcherSession.SignedIn)?.userId
+        return token.sessionGeneration == sessionGeneration &&
+            token.albumGeneration == privateAlbumGeneration &&
+            token.userId == currentUserId
+    }
+
+    private fun ensurePrivateAlbumWorkIsCurrent(token: PrivateAlbumWorkToken) {
+        if (!isPrivateAlbumWorkCurrent(token)) {
+            throw CancellationException("Private album work is no longer current")
+        }
+    }
+
+    private inline fun updatePrivateAlbumState(
+        token: PrivateAlbumWorkToken,
+        transform: (RemoteMatcherUiState) -> RemoteMatcherUiState,
+    ) {
+        if (isPrivateAlbumWorkCurrent(token)) mutableState.update(transform)
+    }
+
+    private fun replaceVisiblePrivateAlbumBytes(
+        token: PrivateAlbumWorkToken,
+        destination: PrivateAlbumDestination,
+        items: List<PrivateAlbumItem>,
+        bytes: Map<String, ByteArray>,
+    ) {
+        if (!isPrivateAlbumWorkCurrent(token)) {
+            wipePrivateAlbumBytes(bytes)
+            return
+        }
+        val previousBytes = mutableState.value.privateAlbum.visibleBytes
+        updatePrivateAlbumState(token) {
+            it.copy(
+                privateAlbum = it.privateAlbum.copy(
+                    destination = destination,
+                    visibleItems = items,
+                    visibleBytes = bytes,
+                ),
+            )
+        }
+        wipePrivateAlbumBytes(previousBytes)
+    }
+
+    private fun wipePrivateAlbumBytes(bytes: Map<String, ByteArray>) {
+        bytes.values.forEach { value -> value.fill(0) }
+    }
+
     private fun requireActiveAccount(): Boolean {
         if (mutableState.value.signedInStage == SignedInStage.Active) return true
         setError("Esta conta não pode usar esta função agora.")
         return false
+    }
+
+    private fun currentSessionWorkToken(): SessionWorkToken = SessionWorkToken(
+        generation = sessionGeneration,
+        userId = (mutableState.value.session as? MatcherSession.SignedIn)?.userId,
+    )
+
+    private fun isSessionWorkCurrent(token: SessionWorkToken): Boolean =
+        token.generation == sessionGeneration &&
+            (mutableState.value.session as? MatcherSession.SignedIn)?.userId == token.userId
+
+    private fun ensureSessionWorkIsCurrent(token: SessionWorkToken) {
+        if (!isSessionWorkCurrent(token)) {
+            throw CancellationException("Session work is no longer current")
+        }
     }
 
     private fun runPendingAgeVerificationRefresh() {
@@ -896,20 +1211,28 @@ class RemoteMatcherViewModel(
 
     private fun launchRemote(
         errorMessage: String? = null,
-        block: suspend () -> Unit,
+        block: suspend (SessionWorkToken) -> Unit,
     ) {
+        val token = currentSessionWorkToken()
         viewModelScope.launch {
+            if (!isSessionWorkCurrent(token)) return@launch
             mutableState.update { it.copy(loading = true, errorMessage = null) }
             try {
-                block()
+                block(token)
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error.matcherCode() == "ACCOUNT_NOT_ACTIVE") {
-                    refreshSignedInData()
-                } else {
-                    setError(errorMessage ?: error.toUserMessage())
+                if (isSessionWorkCurrent(token)) {
+                    if (error.matcherCode() == "ACCOUNT_NOT_ACTIVE") {
+                        refreshSignedInData(token)
+                    } else {
+                        setError(errorMessage ?: error.toUserMessage())
+                    }
                 }
             } finally {
-                mutableState.update { it.copy(loading = false) }
+                if (isSessionWorkCurrent(token)) {
+                    mutableState.update { it.copy(loading = false) }
+                }
             }
         }
     }
@@ -942,6 +1265,7 @@ class RemoteMatcherViewModel(
         const val TermsVersion = "dev-2026-07"
         const val DevelopmentRegion = "br-sao-paulo"
         const val PrivateAlbumContentPolicyVersion = "private-album-2026-07"
+        const val MaxPrivateAlbumImageBytes = 5 * 1024 * 1024
     }
 }
 

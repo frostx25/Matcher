@@ -1,7 +1,7 @@
 import { extractPrivateAlbumBearer } from "./privateAlbumMedia.ts";
 
 export type CleanupBatchResult =
-  | { kind: "ok"; objectPaths: string[] }
+  | { kind: "ok"; items: PrivateAlbumCleanupLease[] }
   | { kind: "unauthenticated" }
   | { kind: "forbidden" }
   | { kind: "error" };
@@ -15,6 +15,17 @@ export type CleanupConfirmationResult =
   | { kind: "pending" }
   | { kind: "error" };
 
+export type CleanupFailureResult =
+  | { kind: "released" }
+  | { kind: "stale" }
+  | { kind: "error" };
+
+export type PrivateAlbumCleanupLease = {
+  objectPath: string;
+  leaseToken: string;
+  leasedUntil: string;
+};
+
 export type PrivateAlbumCleanupDependencies = {
   getBatch: (
     accessToken: string,
@@ -23,7 +34,13 @@ export type PrivateAlbumCleanupDependencies = {
   deleteObject: (objectPath: string) => Promise<CleanupDeleteResult>;
   confirmDeleted: (
     objectPath: string,
+    leaseToken: string,
   ) => Promise<CleanupConfirmationResult>;
+  failCleanup: (
+    objectPath: string,
+    leaseToken: string,
+    failureCode: "DELETE_FAILED",
+  ) => Promise<CleanupFailureResult>;
 };
 
 export type PrivateAlbumCleanupCounts = {
@@ -37,6 +54,9 @@ const UUID_SEGMENT =
 const PRIVATE_ALBUM_CLEANUP_PATH = new RegExp(
   `^${UUID_SEGMENT}/${UUID_SEGMENT}/${UUID_SEGMENT}\\.(?:jpg|jpeg|png|webp)$`,
 );
+const CLEANUP_LEASE_TOKEN = new RegExp(`^${UUID_SEGMENT}$`);
+const POSTGRES_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
 const MAX_REQUEST_BODY_LENGTH = 256;
 const EMPTY_COUNTS: Readonly<PrivateAlbumCleanupCounts> = {
   processed: 0,
@@ -51,6 +71,25 @@ const RESPONSE_HEADERS: Readonly<Record<string, string>> = {
 
 export function isPrivateAlbumCleanupObjectPath(value: string): boolean {
   return PRIVATE_ALBUM_CLEANUP_PATH.test(value);
+}
+
+export function isPrivateAlbumCleanupLeaseToken(value: string): boolean {
+  return CLEANUP_LEASE_TOKEN.test(value);
+}
+
+function isValidLeaseTimestamp(value: string): boolean {
+  return value.length <= 64 && POSTGRES_TIMESTAMP.test(value) &&
+    Number.isFinite(Date.parse(value));
+}
+
+function hasCleanupLeaseShape(
+  value: unknown,
+): value is PrivateAlbumCleanupLease {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.objectPath === "string" &&
+    typeof record.leaseToken === "string" &&
+    typeof record.leasedUntil === "string";
 }
 
 function countsResponse(
@@ -153,48 +192,83 @@ export function createPrivateAlbumCleanupHandler(
       return countsResponse({ ...EMPTY_COUNTS }, 503);
     }
 
+    if (!Array.isArray(batch.items)) {
+      return countsResponse({ ...EMPTY_COUNTS }, 503);
+    }
     if (
-      batch.objectPaths.length > batchSize ||
-      new Set(batch.objectPaths).size !== batch.objectPaths.length
+      batch.items.length > batchSize ||
+      batch.items.some((item) => !hasCleanupLeaseShape(item)) ||
+      new Set(batch.items.map((item) => item.objectPath)).size !==
+        batch.items.length ||
+      new Set(batch.items.map((item) => item.leaseToken)).size !==
+        batch.items.length
     ) {
       return countsResponse({ ...EMPTY_COUNTS }, 503);
     }
 
     const counts: PrivateAlbumCleanupCounts = {
-      processed: batch.objectPaths.length,
+      processed: batch.items.length,
       deleted: 0,
       failed: 0,
     };
 
-    for (const objectPath of batch.objectPaths) {
-      if (!isPrivateAlbumCleanupObjectPath(objectPath)) {
+    const markFailed = async (item: PrivateAlbumCleanupLease) => {
+      try {
+        await dependencies.failCleanup(
+          item.objectPath,
+          item.leaseToken,
+          "DELETE_FAILED",
+        );
+      } catch {
+        // The count remains failed. A stale/failed lease must never disclose or
+        // retry a path inside the same invocation.
+      }
+    };
+
+    for (const item of batch.items) {
+      if (!isPrivateAlbumCleanupLeaseToken(item.leaseToken)) {
         counts.failed += 1;
+        continue;
+      }
+      if (
+        !isPrivateAlbumCleanupObjectPath(item.objectPath) ||
+        !isValidLeaseTimestamp(item.leasedUntil)
+      ) {
+        counts.failed += 1;
+        await markFailed(item);
         continue;
       }
 
       let deletion: CleanupDeleteResult;
       try {
-        deletion = await dependencies.deleteObject(objectPath);
+        deletion = await dependencies.deleteObject(item.objectPath);
       } catch {
         counts.failed += 1;
+        await markFailed(item);
         continue;
       }
       if (deletion.kind !== "ok") {
         counts.failed += 1;
+        await markFailed(item);
         continue;
       }
 
       let confirmation: CleanupConfirmationResult;
       try {
-        confirmation = await dependencies.confirmDeleted(objectPath);
+        confirmation = await dependencies.confirmDeleted(
+          item.objectPath,
+          item.leaseToken,
+        );
       } catch {
         counts.failed += 1;
+        await markFailed(item);
         continue;
       }
       if (confirmation.kind === "confirmed") {
         counts.deleted += 1;
       } else {
         counts.failed += 1;
+        await markFailed(item);
       }
     }
 

@@ -61,8 +61,12 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Somente o titular e uma conta ativa com concessão individual vigente podem listar metadados ou baixar uma imagem. A autorização é decidida no servidor em cada listagem/download; objetos não usam URL pública ou permanente e o cliente não mantém cópia em cache persistente.
 - O titular pode conceder e revogar acesso por destinatário. A revogação impede imediatamente novas listagens e downloads e remove o conteúdo já carregado da interface; cópias já capturadas fora do controle do app não podem ser recuperadas.
 - Bloquear uma conta revoga permanentemente todas as concessões de álbum entre as duas contas, em ambas as direções. Desbloquear não restaura acesso; somente uma nova concessão explícita pode fazê-lo.
+- Concessão e bloqueio concorrentes são serializados pelo servidor. Uma concessão nunca pode ficar ativa por uma corrida com o bloqueio, e uma concessão encerrada por denúncia não pode ser reativada unilateralmente pelo titular enquanto o caso estiver preservado.
+- Toda mutação de uma geração do álbum (reservar upload, conceder, revogar, denunciar ou excluir) carrega o `album_id` que a interface exibiu e o servidor o revalida. Uma requisição ou repetição atrasada da geração A nunca pode atuar sobre um álbum substituto B.
 - Denunciar um item ou álbum abre um caso de moderação auditável, oculta o álbum para quem denunciou e encerra sua concessão. A evidência preservada segue retenção mínima e acesso restrito; conteúdo sensível não é escrito em logs.
-- Excluir uma imagem, o álbum ou a conta remove metadados, concessões e objetos de Storage de modo idempotente. Falha parcial entra em rotina de limpeza sem tornar o objeto acessível.
+- Excluir uma imagem, o álbum ou a conta remove metadados, concessões e objetos de Storage de modo idempotente. A exclusão do álbum é vinculada ao `album_id` exibido ao usuário; uma repetição tardia nunca pode atingir um álbum substituto. Falha parcial entra em rotina de limpeza sem tornar o objeto acessível.
+- Upload e exclusão concorrentes são serializados pelo caminho reservado. A limpeza usa lease/backoff, não deixa um item com falha monopolizar a fila e respeita retenção restrita de evidência de denúncia.
+- Antes de servir bytes, o backend confere formato, tamanho e limites seguros de dimensões/pixels. O Android faz decode amostrado; metadata ou extensão declarada pelo cliente não basta para considerar a imagem segura.
 - Antes de abrir o álbum, o destinatário vê uma tela bloqueada e um aviso de conteúdo privado/capturas. O app não promete impedir screenshots ou fotografias feitas com outro aparelho.
 - Esta versão aceita somente imagens. Vídeo, concessões com expiração e visualização única ficam fora do MVP.
 
@@ -75,6 +79,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Se a identidade de um perfil estiver oculta ou marcada como “prefiro não informar”, uma preferência específica não pode usá-la para incluir esse perfil, evitando revelar indiretamente um dado oculto. A preferência “todas as pessoas” pode incluir o perfil sem expor identidade.
 - Perfis criados antes desta versão recebem, sem inferência, identidade “prefiro não informar” oculta e preferência privada “todas as pessoas”. Nome, bio, foto, conversa e verificação nunca são usados para deduzir gênero.
 - Alterar a preferência invalida a página/cursor anterior e a próxima consulta reinicia a descoberta com a decisão atual do servidor. O cliente não filtra um conjunto mais amplo como substituto da regra autoritativa.
+- `authenticated` não possui leitura ampla de `public.profiles`; perfil próprio e descoberta são servidos por RPCs contextuais. Ao detectar cursor obsoleto, o cliente substitui a lista pela nova primeira página, sem mesclar resultados anteriores.
 - Distância mostrada em faixas, nunca em metros exatos.
 - Funciona com localização escolhida por região e com localização aproximada do Android.
 - Pausar descoberta, ocultar distância e não aparecer em exploração.
@@ -306,3 +311,5 @@ O app mantém um repositório em memória para testes determinísticos e demonst
 - Fixtures de foto modelam versões e decisões (`pending`, `approved`, `adult`, `abusive`) sem mídia real e sem assumir a existência de classificação automática.
 - O repositório de perfil mantém identidade e preferência como estados distintos; somente a identidade visível pode compor cartões públicos e a preferência nunca sai do estado privado do próprio usuário.
 - O álbum privado não reutiliza URL/cache das fotos públicas. O cliente limpa imagens carregadas ao perder concessão, receber bloqueio/moderação ou sair da tela, e sempre trata negação do servidor como estado autoritativo.
+- Toda operação assíncrona de álbum fica vinculada à sessão e à tela que a iniciou. Voltar, sair ou trocar de conta cancela/invalida a operação, e uma resposta antiga nunca pode repopular bytes privados.
+- Durante a janela de compatibilidade, o overload legado de onboarding continua disponível somente como wrapper server-side com identidade oculta `prefer_not_to_say` e preferência privada `everyone`.

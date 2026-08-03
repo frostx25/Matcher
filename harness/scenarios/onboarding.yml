@@ -1,4 +1,4 @@
-version: 12
+version: 13
 domain: onboarding-profile
 
 scenarios:
@@ -480,3 +480,18 @@ scenarios:
       - profile_tab_shows_display_name: true
       - profile_tab_shows_bio: true
       - exact_location_visible: false
+
+  - id: ONB-015-legacy-rpc-safe-wrapper
+    name: APK legado conclui onboarding com defaults privados seguros
+    given:
+      - authenticated_user: user-legacy-client
+      - client_uses_legacy_seven_argument_rpc: true
+      - adult_declaration_and_terms_valid: true
+    when:
+      - complete_legacy_onboarding: true
+    then:
+      - account_status: active
+      - gender_identity_ids: [prefer_not_to_say]
+      - gender_visible: false
+      - looking_for_gender_ids: [everyone]
+      - gender_inferred: false

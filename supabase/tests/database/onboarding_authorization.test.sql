@@ -1,7 +1,12 @@
 begin;
 
-set local search_path = public, extensions;
+set local role postgres;
+
+set local search_path = public, testing, extensions;
 select plan(51);
+
+-- Test-only access is transaction-scoped and rolled back at the end.
+grant usage on schema testing to anon, authenticated, service_role;
 
 select has_column('public', 'accounts', 'terms_accepted_at', 'terms acceptance timestamp exists');
 select has_column('public', 'accounts', 'terms_version', 'terms version exists');
@@ -98,10 +103,11 @@ set local role authenticated;
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000301';
 set local "request.jwt.claim.role" = 'authenticated';
 
-select results_eq(
+select throws_ok(
     'select count(*) from public.profiles',
-    array[0::bigint],
-    'pending account cannot read discovery profiles'
+    '42501',
+    'permission denied for table profiles',
+    'authenticated account has no direct profile table read'
 );
 
 select throws_ok(
@@ -166,11 +172,12 @@ select results_eq(
 );
 
 select results_eq(
-    $$select display_name, discovery_visible, verified from public.profiles where id = auth.uid()$$,
-    $$values ('Adult fixture'::text, true, false)$$,
-    'unverified profile is visible but has no documentary badge'
+    $$select display_name, verified from public.get_my_profile()$$,
+    $$values ('Adult fixture'::text, false)$$,
+    'owner RPC returns the unverified profile without a broad table grant'
 );
 
+set local role postgres;
 select results_eq(
     $$select count(*)
         from public.accounts account
@@ -182,6 +189,9 @@ select results_eq(
     array[0::bigint],
     'soft-gate migration leaves no recoverable complete adult profile pending'
 );
+set local role authenticated;
+set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000301';
+set local "request.jwt.claim.role" = 'authenticated';
 
 select results_eq(
     $$select account_status::text, verification_status::text, onboarding_complete
@@ -191,12 +201,13 @@ select results_eq(
 );
 
 select results_eq(
-    $$select count(*) from public.profiles where id in (
-        '00000000-0000-0000-0000-000000000301'::uuid,
-        '00000000-0000-0000-0000-000000000302'::uuid
-    )$$,
+    $$select
+        (select count(*) from public.get_my_profile())
+        +
+        (select count(*) from public.get_discovery_profiles(null, 20, null)
+          where id = '00000000-0000-0000-0000-000000000302'::uuid)$$,
     array[2::bigint],
-    'active unverified account can read its own and visible discovery profiles'
+    'active unverified account reads self and discovery only through contextual RPCs'
 );
 
 select lives_ok(
@@ -204,7 +215,7 @@ select lives_ok(
     'active unverified account can access chat quota'
 );
 
-reset role;
+set local role postgres;
 
 insert into public.age_verification_attempts (
     user_id,
@@ -243,7 +254,7 @@ select throws_ok(
     'authenticated client cannot forge a provider result'
 );
 
-reset role;
+set local role postgres;
 
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
@@ -270,7 +281,7 @@ select lives_ok(
     'provider review can start without disabling the active account'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select status::text, age_verification_status::text
         from public.accounts
@@ -299,7 +310,7 @@ select lives_ok(
     'provider failure does not disable the active account'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select account.status::text, account.age_verification_status::text,
               profile.discovery_visible, profile.verified
@@ -322,7 +333,7 @@ select lives_ok(
     'provider cancellation also leaves access unchanged'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select account.status::text, account.age_verification_status::text,
               profile.discovery_visible, profile.verified
@@ -366,7 +377,7 @@ select lives_ok(
     'a late failure notification is accepted idempotently'
 );
 
-reset role;
+set local role postgres;
 set local role authenticated;
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000301';
 set local "request.jwt.claim.role" = 'authenticated';
@@ -379,21 +390,22 @@ select results_eq(
 );
 
 select results_eq(
-    $$select discovery_visible, verified from public.profiles where id = auth.uid()$$,
-    $$values (true, true)$$,
-    'verified provider result grants the badge without changing discovery'
+    $$select verified from public.get_my_profile()$$,
+    $$values (true)$$,
+    'owner RPC reflects the documentary badge'
 );
 
 select results_eq(
-    $$select count(*) from public.profiles where id in (
-        '00000000-0000-0000-0000-000000000301'::uuid,
-        '00000000-0000-0000-0000-000000000302'::uuid
-    )$$,
+    $$select
+        (select count(*) from public.get_my_profile())
+        +
+        (select count(*) from public.get_discovery_profiles(null, 20, null)
+          where id = '00000000-0000-0000-0000-000000000302'::uuid)$$,
     array[2::bigint],
-    'verified account can read itself and visible verified profile'
+    'verified account still uses contextual owner and discovery RPCs'
 );
 
-reset role;
+set local role postgres;
 
 select results_eq(
     $$select count(*) from public.audit_events
@@ -433,7 +445,7 @@ select throws_ok(
     'birth year cannot be changed through repeated onboarding'
 );
 
-reset role;
+set local role postgres;
 update public.accounts
    set status = 'active',
        age_verification_status = 'manual_review',
@@ -458,7 +470,7 @@ select lives_ok(
     'provider completion can resolve documentary manual review'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select status::text, age_verification_status::text
         from public.accounts
@@ -491,7 +503,7 @@ select lives_ok(
     'replayed completion does not fail for a suspended account'
 );
 
-reset role;
+set local role postgres;
 set local role authenticated;
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000301';
 set local "request.jwt.claim.role" = 'authenticated';

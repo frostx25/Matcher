@@ -1,4 +1,4 @@
-version: 1
+version: 2
 domain: gender-discovery-preferences
 
 scenarios:
@@ -115,3 +115,28 @@ scenarios:
       - persisted_preference_used: [non_binary]
       - unauthorized_filter_override_ignored: true
       - response_is_paginated: true
+
+  - id: DISC-GENDER-009-direct-profile-table-denied
+    name: Cliente autenticado não contorna descoberta lendo todos os perfis
+    given:
+      - viewer: user-free
+      - persisted_looking_for_gender_ids: [non_binary]
+    when:
+      - client_selects_public_profiles_directly: true
+    then:
+      - direct_table_read_allowed: false
+      - own_profile_available_through_contextual_rpc: true
+      - discovery_available_only_through_filtered_rpc: true
+
+  - id: DISC-GENDER-010-stale-cursor-replaces-page
+    name: Cursor obsoleto substitui resultados do filtro anterior
+    given:
+      - displayed_profiles_from_previous_filter: [user-target-01]
+      - discovery_cursor_exists: true
+    when:
+      - preference_changes: true
+      - server_returns_discovery_cursor_stale: true
+    then:
+      - old_profiles_retained_in_grid: false
+      - new_first_page_replaces_grid: true
+      - old_and_new_pages_merged: false

@@ -1,7 +1,12 @@
 begin;
 
-set local search_path = public, extensions;
+set local role postgres;
+
+set local search_path = public, testing, extensions;
 select plan(69);
+
+-- Test-only access is transaction-scoped and rolled back at the end.
+grant usage on schema testing to anon, authenticated, service_role;
 
 select has_table('private', 'private_albums', 'private album metadata is private');
 select has_table('private', 'private_album_items', 'private album items are private');
@@ -132,7 +137,9 @@ select results_eq(
 );
 
 select throws_ok(
-    $$select * from public.reserve_private_album_item('video/mp4')$$,
+    $$select * from public.reserve_private_album_item(
+        (select album_id from public.get_my_private_album()), 'video/mp4'
+    )$$,
     'P0001',
     'INVALID_PRIVATE_ALBUM_MEDIA_TYPE',
     'video is outside the private album MVP'
@@ -154,7 +161,9 @@ select throws_ok(
 );
 
 create temporary table album_upload_reservation as
-select * from public.reserve_private_album_item('image/jpeg');
+select * from public.reserve_private_album_item(
+    (select album_id from public.get_my_private_album()), 'image/jpeg'
+);
 
 select lives_ok(
     $$insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
@@ -201,12 +210,12 @@ select results_eq(
 );
 
 select results_eq(
-    $$select avatar_path from public.profiles where id = auth.uid()$$,
+    $$select avatar_path from public.get_my_profile()$$,
     $$values (null::text)$$,
     'private album image never becomes the public profile photo'
 );
 
-reset role;
+set local role postgres;
 create temporary table album_test_fixture as
 select album.id as album_id, item.id as item_id, item.object_path
 from private.private_albums album
@@ -236,6 +245,7 @@ set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
 
 select lives_ok(
     $$select public.grant_private_album_access(
+        (select album_id from album_test_fixture limit 1),
         '00000000-0000-0000-0000-000000000602'
     )$$,
     'owner grants recipient A explicitly'
@@ -243,13 +253,16 @@ select lives_ok(
 
 select lives_ok(
     $$select public.grant_private_album_access(
+        (select album_id from album_test_fixture limit 1),
         '00000000-0000-0000-0000-000000000603'
     )$$,
     'owner grants recipient B independently'
 );
 
 select throws_ok(
-    $$select public.grant_private_album_access(auth.uid())$$,
+    $$select public.grant_private_album_access(
+        (select album_id from album_test_fixture limit 1), auth.uid()
+    )$$,
     'P0001',
     'INVALID_ALBUM_RECIPIENT',
     'owner cannot grant the album to self'
@@ -257,6 +270,7 @@ select throws_ok(
 
 select throws_ok(
     $$select public.grant_private_album_access(
+        (select album_id from album_test_fixture limit 1),
         '00000000-0000-0000-0000-000000000606'
     )$$,
     'P0001',
@@ -284,6 +298,7 @@ select results_eq(
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
 select lives_ok(
     $$select public.revoke_private_album_access(
+        (select album_id from album_test_fixture limit 1),
         '00000000-0000-0000-0000-000000000602'
     )$$,
     'owner revokes recipient A'
@@ -316,6 +331,7 @@ select lives_ok(
 );
 select lives_ok(
     $$select public.grant_private_album_access(
+        (select album_id from public.get_my_private_album()),
         '00000000-0000-0000-0000-000000000601'
     )$$,
     'recipient A grants their album back to the original owner'
@@ -324,6 +340,7 @@ select lives_ok(
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
 select lives_ok(
     $$select public.grant_private_album_access(
+        (select album_id from album_test_fixture limit 1),
         '00000000-0000-0000-0000-000000000602'
     )$$,
     'original owner explicitly regrants recipient A before block test'
@@ -335,7 +352,7 @@ select lives_ok(
     'blocking inserts one relation that triggers album revocation'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select count(*) from private.private_album_grants album_grant
         join private.private_albums album on album.id = album_grant.album_id
@@ -371,6 +388,7 @@ set local "request.jwt.claim.role" = 'authenticated';
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
 select lives_ok(
     $$select public.grant_private_album_access(
+        (select album_id from album_test_fixture limit 1),
         '00000000-0000-0000-0000-000000000602'
     )$$,
     'new explicit grant is required after unblock'
@@ -379,7 +397,7 @@ select lives_ok(
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000602';
 select lives_ok(
     $$select public.report_private_album(
-        '00000000-0000-0000-0000-000000000601',
+        (select album_id from album_test_fixture limit 1),
         'inappropriate_photo',
         'Descrição sintética',
         (select item_id from album_test_fixture limit 1)
@@ -420,7 +438,7 @@ select throws_ok(
     'recipient cannot remove content as a moderator'
 );
 
-reset role;
+set local role postgres;
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
 select lives_ok(
@@ -431,7 +449,7 @@ select lives_ok(
     'service role can remove a reported private item'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select status from private.private_album_items
         where id = (select item_id from album_test_fixture limit 1)$$,
@@ -467,14 +485,18 @@ select lives_ok(
     $test$do $block$
       begin
         for i in 1..10 loop
-          perform public.reserve_private_album_item('image/jpeg');
+          perform public.reserve_private_album_item(
+            (select album_id from public.get_my_private_album()), 'image/jpeg'
+          );
         end loop;
       end
       $block$;$test$,
     'ten server-serialized item reservations succeed'
 );
 select throws_ok(
-    $$select * from public.reserve_private_album_item('image/jpeg')$$,
+    $$select * from public.reserve_private_album_item(
+        (select album_id from public.get_my_private_album()), 'image/jpeg'
+    )$$,
     'P0001',
     'PRIVATE_ALBUM_LIMIT_REACHED',
     'eleventh reservation is rejected by the server'
@@ -488,7 +510,7 @@ select results_eq(
     'absence of update policy prevents move and upsert replacement'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select count(*) from private.private_album_cleanup_queue$$,
     array[1::bigint],
@@ -501,7 +523,9 @@ set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
 set local storage.allow_delete_query = 'true';
 
 create temporary table album_delete_paths as
-select object_path from public.begin_private_album_deletion();
+select object_path from public.begin_private_album_deletion(
+    (select album_id from album_test_fixture limit 1)
+);
 grant select on album_delete_paths to service_role;
 
 select results_eq(
@@ -512,56 +536,64 @@ select results_eq(
     'begin deletion makes all album bytes inaccessible before cleanup'
 );
 
-reset role;
+set local role postgres;
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
 
-select lives_ok(
+select throws_ok(
     $$delete from storage.objects
         where bucket_id = 'private-albums'
           and name in (select object_path from album_delete_paths)$$,
-    'cleanup worker can delete only the queued physical object paths'
+    'P0001',
+    'PRIVATE_ALBUM_EVIDENCE_HOLD',
+    'physical cleanup cannot delete reported evidence before hold expiry'
 );
 
-reset role;
+set local role postgres;
 set local role authenticated;
 set local "request.jwt.claim.role" = 'authenticated';
 set local "request.jwt.claim.sub" = '00000000-0000-0000-0000-000000000601';
 
 select results_eq(
-    $$select public.finalize_private_album_deletion()$$,
+    $$select public.finalize_private_album_deletion(
+        (select album_id from album_test_fixture limit 1)
+    )$$,
     array[true],
     'album deletion finalizes after physical objects are gone'
 );
 
 select results_eq(
-    $$select public.finalize_private_album_deletion()$$,
+    $$select public.finalize_private_album_deletion(
+        (select album_id from album_test_fixture limit 1)
+    )$$,
     array[true],
     'repeating album deletion finalization is idempotent'
 );
 
-reset role;
+set local role postgres;
 select results_eq(
     $$select count(*) from private.private_albums
-        where owner_id = '00000000-0000-0000-0000-000000000601'::uuid$$,
-    array[0::bigint],
-    'deleted album leaves no owner metadata row'
+        where owner_id = '00000000-0000-0000-0000-000000000601'::uuid
+          and status = 'deleting'$$,
+    array[1::bigint],
+    'logical deletion retains only restricted deleting metadata during evidence hold'
 );
 
 select results_eq(
     $$select count(*) from private.private_album_grants album_grant
         join private.private_albums album on album.id = album_grant.album_id
-        where album.owner_id = '00000000-0000-0000-0000-000000000601'::uuid$$,
+        where album.owner_id = '00000000-0000-0000-0000-000000000601'::uuid
+          and album_grant.revoked_at is null$$,
     array[0::bigint],
-    'deleted album leaves no orphan grants'
+    'logical deletion leaves no active grant while evidence is held'
 );
 
 select results_eq(
     $$select count(*) from storage.objects object
         where object.bucket_id = 'private-albums'
           and object.name in (select object_path from album_test_fixture)$$,
-    array[0::bigint],
-    'deleted album leaves no physical object for its former items'
+    array[1::bigint],
+    'reported object remains physically held but inaccessible until retention ends'
 );
 
 select ok(

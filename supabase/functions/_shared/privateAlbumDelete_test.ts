@@ -4,6 +4,7 @@ import {
   type DeleteAuthorizationResult,
   type DeleteObjectResult,
   parsePrivateAlbumDeleteObjectPath,
+  type PrivateAlbumDeletionCandidate,
 } from "./privateAlbumDelete.ts";
 
 function assert(condition: boolean, message: string): asserts condition {
@@ -25,6 +26,14 @@ const anotherItemId = "44444444-4444-4444-8444-444444444444";
 
 function objectPath(id = itemId, extension = "jpg"): string {
   return `${ownerId}/${albumId}/${id}.${extension}`;
+}
+
+function candidate(
+  path = objectPath(),
+  deleteNow = true,
+  holdUntil: string | null = null,
+): PrivateAlbumDeletionCandidate {
+  return { objectPath: path, deleteNow, holdUntil };
 }
 
 function deleteRequest(
@@ -61,8 +70,8 @@ function deleteRequest(
 }
 
 function testHandler(options: {
-  marked?: DeleteAuthorizationResult<string>;
-  begun?: DeleteAuthorizationResult<string[]>;
+  marked?: DeleteAuthorizationResult<PrivateAlbumDeletionCandidate>;
+  begun?: DeleteAuthorizationResult<PrivateAlbumDeletionCandidate[]>;
   removal?: DeleteObjectResult;
   finalized?: AlbumFinalizationResult;
   trace?: string[];
@@ -74,12 +83,12 @@ function testHandler(options: {
       return Promise.resolve(
         options.marked ?? {
           kind: "authorized",
-          value: objectPath(id),
+          value: candidate(objectPath(id)),
         },
       );
     },
-    beginAlbum: (accessToken) => {
-      trace.push(`begin:${accessToken}`);
+    beginAlbum: (accessToken, targetAlbumId) => {
+      trace.push(`begin:${accessToken}:${targetAlbumId}`);
       return Promise.resolve(
         options.begun ?? { kind: "authorized", value: [] },
       );
@@ -88,8 +97,8 @@ function testHandler(options: {
       trace.push(`remove:${path}`);
       return Promise.resolve(options.removal ?? { kind: "ok" });
     },
-    finalizeAlbum: (accessToken) => {
-      trace.push(`finalize:${accessToken}`);
+    finalizeAlbum: (accessToken, targetAlbumId) => {
+      trace.push(`finalize:${accessToken}:${targetAlbumId}`);
       return Promise.resolve(
         options.finalized ?? { kind: "finalized" },
       );
@@ -206,12 +215,14 @@ Deno.test("request contains exactly one valid delete action", async () => {
   const invalidRequests = [
     deleteRequest({}),
     deleteRequest({ item_id: "invalid" }),
+    deleteRequest({ album_id: "invalid" }),
     deleteRequest({ delete_album: false }),
     deleteRequest({ item_id: itemId, delete_album: true }),
     deleteRequest({ delete_album: true, extra: true }),
+    deleteRequest({ item_id: itemId, album_id: albumId }),
     deleteRequest("not-json"),
-    deleteRequest({ delete_album: true }, { contentType: "text/plain" }),
-    deleteRequest({ delete_album: true }, { url: `${endpoint}?confirm=true` }),
+    deleteRequest({ album_id: albumId }, { contentType: "text/plain" }),
+    deleteRequest({ album_id: albumId }, { url: `${endpoint}?confirm=true` }),
   ];
   for (const request of invalidRequests) {
     const response = await handler(request);
@@ -253,8 +264,29 @@ Deno.test("missing item is idempotent and never reaches service role", async () 
   );
 });
 
+Deno.test("retained item is logically deleted without touching Storage", async () => {
+  const trace: string[] = [];
+  const path = objectPath();
+  const response = await testHandler({
+    marked: {
+      kind: "authorized",
+      value: candidate(path, false, "2030-01-01T00:00:00.000Z"),
+    },
+    trace,
+  })(deleteRequest());
+  assertEquals(response.status, 200, "retained item status");
+  await assertDeletedBody(response, true, "retained item");
+  assertEquals(
+    trace.join(","),
+    `mark:${token}:${itemId}`,
+    "retention never calls Storage",
+  );
+});
+
 Deno.test("item authorization failures never reach service role", async () => {
-  const cases: Array<[DeleteAuthorizationResult<string>, number]> = [
+  const cases: Array<
+    [DeleteAuthorizationResult<PrivateAlbumDeletionCandidate>, number]
+  > = [
     [{ kind: "unauthenticated" }, 401],
     [{ kind: "forbidden" }, 403],
     [{ kind: "error" }, 503],
@@ -279,12 +311,32 @@ Deno.test("item path must be canonical and bound to requested UUID", async () =>
   ) {
     const trace: string[] = [];
     const response = await testHandler({
-      marked: { kind: "authorized", value },
+      marked: { kind: "authorized", value: candidate(value) },
       trace,
     })(deleteRequest());
     assertEquals(response.status, 503, "invalid path status");
     await assertDeletedBody(response, false, "invalid path body");
     assertEquals(trace.length, 1, "invalid path is never removed");
+  }
+});
+
+Deno.test("retention metadata must be internally consistent", async () => {
+  for (
+    const value of [
+      candidate(objectPath(), false, null),
+      candidate(objectPath(), false, "not-a-timestamp"),
+      candidate(objectPath(), true, "not-a-timestamp"),
+      candidate(objectPath(), true, "2030-01-01T00:00:00.000Z"),
+    ]
+  ) {
+    const trace: string[] = [];
+    const response = await testHandler({
+      marked: { kind: "authorized", value },
+      trace,
+    })(deleteRequest());
+    assertEquals(response.status, 503, "invalid retention status");
+    await assertDeletedBody(response, false, "invalid retention body");
+    assertEquals(trace.length, 1, "invalid retention never removes");
   }
 });
 
@@ -295,7 +347,7 @@ Deno.test("item removal failure is retryable and sanitized", async () => {
       markItem: () =>
         Promise.resolve({
           kind: "authorized",
-          value: objectPath(),
+          value: candidate(),
         }),
       beginAlbum: () => Promise.resolve({ kind: "authorized", value: [] }),
       removeObject: () => {
@@ -318,32 +370,77 @@ Deno.test("album removes only authorized canonical paths then finalizes", async 
   const second = objectPath(anotherItemId, "webp");
   const trace: string[] = [];
   const response = await testHandler({
-    begun: { kind: "authorized", value: [first, second] },
+    begun: {
+      kind: "authorized",
+      value: [candidate(first), candidate(second)],
+    },
     trace,
-  })(deleteRequest({ delete_album: true }));
+  })(deleteRequest({ album_id: albumId }));
   const body = await assertDeletedBody(response, true, "album success");
 
   assertEquals(response.status, 200, "album status");
   assertEquals(
     trace.join(","),
-    `begin:${token},remove:${first},remove:${second},finalize:${token}`,
+    `begin:${token}:${albumId},remove:${first},remove:${second},finalize:${token}:${albumId}`,
     "album operation order",
   );
   assert(!body.includes(first), "first path is hidden");
   assert(!body.includes(second), "second path is hidden");
 });
 
+Deno.test("album skips held objects and finalizes logical deletion", async () => {
+  const held = objectPath(itemId, "jpg");
+  const deletable = objectPath(anotherItemId, "webp");
+  const trace: string[] = [];
+  const response = await testHandler({
+    begun: {
+      kind: "authorized",
+      value: [
+        candidate(held, false, "2030-01-01T00:00:00.000Z"),
+        candidate(deletable),
+      ],
+    },
+    trace,
+  })(deleteRequest({ album_id: albumId }));
+  assertEquals(response.status, 200, "mixed retention status");
+  await assertDeletedBody(response, true, "mixed retention body");
+  assertEquals(
+    trace.join(","),
+    `begin:${token}:${albumId},remove:${deletable},finalize:${token}:${albumId}`,
+    "only deletable path reaches Storage",
+  );
+});
+
+Deno.test("album containing only holds still finalizes without Storage", async () => {
+  const held = objectPath();
+  const trace: string[] = [];
+  const response = await testHandler({
+    begun: {
+      kind: "authorized",
+      value: [candidate(held, false, "2030-01-01T00:00:00.000Z")],
+    },
+    trace,
+  })(deleteRequest({ album_id: albumId }));
+  assertEquals(response.status, 200, "held album status");
+  await assertDeletedBody(response, true, "held album body");
+  assertEquals(
+    trace.join(","),
+    `begin:${token}:${albumId},finalize:${token}:${albumId}`,
+    "held object is not removed",
+  );
+});
+
 Deno.test("empty album deletion remains idempotent and still finalizes", async () => {
   const trace: string[] = [];
   const handler = testHandler({ trace });
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await handler(deleteRequest({ delete_album: true }));
+    const response = await handler(deleteRequest({ album_id: albumId }));
     assertEquals(response.status, 200, `attempt ${attempt} status`);
     await assertDeletedBody(response, true, `attempt ${attempt}`);
   }
   assertEquals(
     trace.join(","),
-    `begin:${token},finalize:${token},begin:${token},finalize:${token}`,
+    `begin:${token}:${albumId},finalize:${token}:${albumId},begin:${token}:${albumId},finalize:${token}:${albumId}`,
     "repeated empty deletion",
   );
 });
@@ -363,18 +460,26 @@ Deno.test("invalid album RPC paths fail closed before privileged calls", async (
     const value of [
       ["../private.jpg"],
       [valid, valid],
+      [anotherAlbumPath],
       [valid, anotherAlbumPath],
       tooMany,
     ]
   ) {
     const trace: string[] = [];
     const response = await testHandler({
-      begun: { kind: "authorized", value },
+      begun: {
+        kind: "authorized",
+        value: value.map((path) => candidate(path)),
+      },
       trace,
-    })(deleteRequest({ delete_album: true }));
+    })(deleteRequest({ album_id: albumId }));
     assertEquals(response.status, 503, "invalid album paths status");
     await assertDeletedBody(response, false, "invalid album paths");
-    assertEquals(trace.join(","), `begin:${token}`, "no privileged call");
+    assertEquals(
+      trace.join(","),
+      `begin:${token}:${albumId}`,
+      "no privileged call",
+    );
   }
 });
 
@@ -386,7 +491,10 @@ Deno.test("album attempts all removals but never finalizes a partial failure", a
     markItem: () => Promise.resolve({ kind: "not_found" }),
     beginAlbum: () => {
       trace.push("begin");
-      return Promise.resolve({ kind: "authorized", value: [first, second] });
+      return Promise.resolve({
+        kind: "authorized",
+        value: [candidate(first), candidate(second)],
+      });
     },
     removeObject: (path) => {
       trace.push(`remove:${path}`);
@@ -400,7 +508,7 @@ Deno.test("album attempts all removals but never finalizes a partial failure", a
     },
   });
 
-  const response = await handler(deleteRequest({ delete_album: true }));
+  const response = await handler(deleteRequest({ album_id: albumId }));
   assertEquals(response.status, 503, "partial failure status");
   await assertDeletedBody(response, false, "partial failure body");
   assertEquals(
@@ -419,7 +527,7 @@ Deno.test("album finalization outcomes remain sanitized", async () => {
   ];
   for (const [finalized, status] of cases) {
     const response = await testHandler({ finalized })(
-      deleteRequest({ delete_album: true }),
+      deleteRequest({ album_id: albumId }),
     );
     assertEquals(response.status, status, `${finalized.kind} status`);
     await assertDeletedBody(response, false, `${finalized.kind} body`);

@@ -39,9 +39,9 @@ O harness deve funcionar com dados sintéticos, sem depender de uma VM de produ�
 
 Os cenários executáveis ficam em:
 
-- `harness/scenarios/onboarding.yml` (versão 12): autenticação por e-mail, onboarding 18+, identidade de gênero, selo opcional, precedência da moderação e visibilidade/versionamento de foto pública.
-- `harness/scenarios/discovery.yml` (versão 1): preferência privada multi-seleção, filtragem autoritativa, privacidade e migração segura.
-- `harness/scenarios/private-album.yml` (versão 1): limite, acesso, concessão, revogação, bloqueio, denúncia, moderação e limpeza do álbum privado.
+- `harness/scenarios/onboarding.yml` (versão 13): autenticação por e-mail, onboarding 18+, compatibilidade segura, identidade de gênero, selo opcional, precedência da moderação e visibilidade/versionamento de foto pública.
+- `harness/scenarios/discovery.yml` (versão 2): preferência privada multi-seleção, filtragem autoritativa, bloqueio de leitura ampla, troca segura de cursor, privacidade e migração.
+- `harness/scenarios/private-album.yml` (versão 2): limite, acesso, concorrência, concessão, revogação, bloqueio, denúncia, moderação, proteção de mídia e limpeza.
 - `harness/scenarios/chat.yml`: abertura direta e quota de novas conversas.
 
 ## Comandos planejados
@@ -78,7 +78,7 @@ No Windows, usar `gradlew.bat` equivalente. O harness não deve exigir Docker pa
 - Perfil legado recebe “prefiro não informar” oculto e “todas as pessoas”, sem inferência; identidade oculta não pode ser deduzida por uma filtragem específica.
 - Álbum privado é invisível fora do fluxo autorizado, aceita no máximo dez imagens e as disponibiliza sem aprovação prévia somente ao titular ou destinatário com concessão vigente.
 - Leitura sem concessão, após revogação, bloqueio, suspensão ou moderação é negada também no Storage. URLs públicas/permanentes e cache persistente de álbum são proibidos.
-- Bloqueio revoga concessões de álbum nos dois sentidos e desbloqueio não restaura acesso; denúncia abre caso auditável e oculta o conteúdo para o denunciante.
-- Excluir item, álbum ou conta limpa objeto, metadados e concessões de forma idempotente. Vídeo, expiração e visualização única são confirmados como fora desta versão.
+- Bloqueio revoga concessões de álbum nos dois sentidos e desbloqueio não restaura acesso; denúncia abre caso auditável, oculta o conteúdo para o denunciante, impede nova concessão enquanto o caso estiver vigente e preserva a evidência por no mínimo 30 dias.
+- Excluir item, álbum ou conta oculta imediatamente e limpa objeto, metadados e concessões de forma idempotente, exceto pela evidência sob retenção. Toda mutação é vinculada ao `album_id` exibido, então retry ou resposta atrasada de uma geração excluída nunca altera a substituta. Vídeo, expiração e visualização única são confirmados como fora desta versão.
 - Falha de rede mostra estado recuperável e não duplica mensagem.
 - O relatório informa comando, ambiente, resultado e evidência.

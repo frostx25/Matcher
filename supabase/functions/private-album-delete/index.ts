@@ -7,10 +7,13 @@ import {
   createPrivateAlbumDeleteHandler,
   type DeleteAuthorizationResult,
   type DeleteObjectResult,
+  type PrivateAlbumDeletionCandidate,
 } from "../_shared/privateAlbumDelete.ts";
 
-type ObjectPathRow = {
+type DeletionCandidateRow = {
   object_path?: unknown;
+  delete_now?: unknown;
+  hold_until?: unknown;
 };
 
 type RpcError = {
@@ -64,10 +67,29 @@ function mapAuthorizationError<T>(
   return { kind: "error" };
 }
 
+function parseDeletionCandidate(
+  value: unknown,
+): PrivateAlbumDeletionCandidate | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as DeletionCandidateRow;
+  if (
+    typeof row.object_path !== "string" ||
+    typeof row.delete_now !== "boolean" ||
+    (row.hold_until !== null && typeof row.hold_until !== "string")
+  ) {
+    return null;
+  }
+  return {
+    objectPath: row.object_path,
+    deleteNow: row.delete_now,
+    holdUntil: row.hold_until,
+  };
+}
+
 async function markItem(
   accessToken: string,
   itemId: string,
-): Promise<DeleteAuthorizationResult<string>> {
+): Promise<DeleteAuthorizationResult<PrivateAlbumDeletionCandidate>> {
   const client = callerClient(accessToken);
   if (!client) return { kind: "error" };
   const { data, error } = await client.rpc(
@@ -75,28 +97,34 @@ async function markItem(
     { album_item_id: itemId },
   );
   if (error) return mapAuthorizationError(error);
-  return typeof data === "string"
-    ? { kind: "authorized", value: data }
+  if (!Array.isArray(data)) return { kind: "error" };
+  if (data.length === 0) return { kind: "not_found" };
+  if (data.length !== 1) return { kind: "error" };
+  const candidate = parseDeletionCandidate(data[0]);
+  return candidate
+    ? { kind: "authorized", value: candidate }
     : { kind: "error" };
 }
 
 async function beginAlbum(
   accessToken: string,
-): Promise<DeleteAuthorizationResult<string[]>> {
+  albumId: string,
+): Promise<DeleteAuthorizationResult<PrivateAlbumDeletionCandidate[]>> {
   const client = callerClient(accessToken);
   if (!client) return { kind: "error" };
-  const { data, error } = await client.rpc("begin_private_album_deletion");
+  const { data, error } = await client.rpc("begin_private_album_deletion", {
+    target_album_id: albumId,
+  });
   if (error) return mapAuthorizationError(error);
   if (!Array.isArray(data)) return { kind: "error" };
 
-  const paths: string[] = [];
+  const candidates: PrivateAlbumDeletionCandidate[] = [];
   for (const value of data) {
-    if (!value || typeof value !== "object") return { kind: "error" };
-    const row = value as ObjectPathRow;
-    if (typeof row.object_path !== "string") return { kind: "error" };
-    paths.push(row.object_path);
+    const candidate = parseDeletionCandidate(value);
+    if (!candidate) return { kind: "error" };
+    candidates.push(candidate);
   }
-  return { kind: "authorized", value: paths };
+  return { kind: "authorized", value: candidates };
 }
 
 async function removeObject(objectPath: string): Promise<DeleteObjectResult> {
@@ -112,10 +140,14 @@ async function removeObject(objectPath: string): Promise<DeleteObjectResult> {
 
 async function finalizeAlbum(
   accessToken: string,
+  albumId: string,
 ): Promise<AlbumFinalizationResult> {
   const client = callerClient(accessToken);
   if (!client) return { kind: "error" };
-  const { data, error } = await client.rpc("finalize_private_album_deletion");
+  const { data, error } = await client.rpc(
+    "finalize_private_album_deletion",
+    { target_album_id: albumId },
+  );
   if (error) {
     const mapped = mapAuthorizationError<never>(error);
     if (mapped.kind === "unauthenticated" || mapped.kind === "forbidden") {

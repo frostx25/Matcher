@@ -2,8 +2,11 @@ import {
   type CleanupBatchResult,
   type CleanupConfirmationResult,
   type CleanupDeleteResult,
+  type CleanupFailureResult,
   createPrivateAlbumCleanupHandler,
+  isPrivateAlbumCleanupLeaseToken,
   isPrivateAlbumCleanupObjectPath,
+  type PrivateAlbumCleanupLease,
 } from "./privateAlbumCleanup.ts";
 
 function assert(condition: boolean, message: string): asserts condition {
@@ -20,9 +23,24 @@ const endpoint = "https://functions.matcher.invalid/private-album-cleanup";
 const token = "header.payload.signature";
 const ownerId = "11111111-1111-4111-8111-111111111111";
 const albumId = "22222222-2222-4222-8222-222222222222";
+const leaseToken = "55555555-5555-4555-8555-555555555555";
+const anotherLeaseToken = "66666666-6666-4666-8666-666666666666";
+const leasedUntil = "2030-01-01T00:00:00.000Z";
 
 function objectPath(itemSuffix: string, extension = "jpg"): string {
   return `${ownerId}/${albumId}/33333333-3333-4333-8333-${itemSuffix}.${extension}`;
+}
+
+function lease(
+  path = objectPath("333333333333"),
+  token = leaseToken,
+  until = leasedUntil,
+): PrivateAlbumCleanupLease {
+  return { objectPath: path, leaseToken: token, leasedUntil: until };
+}
+
+function leaseTokenFor(index: number): string {
+  return `77777777-7777-4777-8777-${index.toString().padStart(12, "0")}`;
 }
 
 function cleanupRequest(
@@ -61,6 +79,7 @@ function testHandler(options: {
   batch?: CleanupBatchResult;
   deleteResult?: CleanupDeleteResult;
   confirmation?: CleanupConfirmationResult;
+  failure?: CleanupFailureResult;
   trace?: string[];
 } = {}) {
   const trace = options.trace ?? [];
@@ -68,18 +87,22 @@ function testHandler(options: {
     getBatch: (_accessToken, batchSize) => {
       trace.push(`batch:${batchSize}`);
       return Promise.resolve(
-        options.batch ?? { kind: "ok", objectPaths: [] },
+        options.batch ?? { kind: "ok", items: [] },
       );
     },
     deleteObject: (path) => {
       trace.push(`delete:${path}`);
       return Promise.resolve(options.deleteResult ?? { kind: "ok" });
     },
-    confirmDeleted: (path) => {
-      trace.push(`confirm:${path}`);
+    confirmDeleted: (path, token) => {
+      trace.push(`confirm:${path}:${token}`);
       return Promise.resolve(
         options.confirmation ?? { kind: "confirmed" },
       );
+    },
+    failCleanup: (path, token, code) => {
+      trace.push(`fail:${path}:${token}:${code}`);
+      return Promise.resolve(options.failure ?? { kind: "released" });
     },
   });
 }
@@ -121,6 +144,23 @@ Deno.test("cleanup path accepts only canonical private album object names", () =
     ]
   ) {
     assert(!isPrivateAlbumCleanupObjectPath(path), `unsafe path: ${path}`);
+  }
+});
+
+Deno.test("cleanup lease token accepts only canonical UUIDs", () => {
+  assert(isPrivateAlbumCleanupLeaseToken(leaseToken), "lease UUID is valid");
+  for (
+    const unsafe of [
+      "",
+      "not-a-uuid",
+      "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+      `${ownerId}/x`,
+    ]
+  ) {
+    assert(
+      !isPrivateAlbumCleanupLeaseToken(unsafe),
+      `unsafe lease token: ${unsafe}`,
+    );
   }
 });
 
@@ -222,6 +262,10 @@ Deno.test("ordinary caller fails before any privileged dependency", async () => 
       trace.push("service-confirm");
       throw new Error("must not run");
     },
+    failCleanup: () => {
+      trace.push("service-fail");
+      throw new Error("must not run");
+    },
   });
 
   const response = await handler(cleanupRequest({ batch_size: 25 }));
@@ -262,11 +306,12 @@ Deno.test("each item is validated, deleted and confirmed with count-only output"
     pendingConfirmation,
     confirmationFailure,
   ];
+  const items = paths.map((path, index) => lease(path, leaseTokenFor(index)));
   const trace: string[] = [];
   const handler = createPrivateAlbumCleanupHandler({
     getBatch: (_token, batchSize) => {
       trace.push(`batch:${batchSize}`);
-      return Promise.resolve({ kind: "ok", objectPaths: paths });
+      return Promise.resolve({ kind: "ok", items });
     },
     deleteObject: (path) => {
       trace.push(`delete:${path}`);
@@ -274,14 +319,18 @@ Deno.test("each item is validated, deleted and confirmed with count-only output"
         path === deleteFailure ? { kind: "error" } : { kind: "ok" },
       );
     },
-    confirmDeleted: (path) => {
-      trace.push(`confirm:${path}`);
+    confirmDeleted: (path, token) => {
+      trace.push(`confirm:${path}:${token}`);
       if (path === confirmationFailure) throw new Error("provider detail");
       return Promise.resolve(
         path === pendingConfirmation
           ? { kind: "pending" }
           : { kind: "confirmed" },
       );
+    },
+    failCleanup: (path, token, code) => {
+      trace.push(`fail:${path}:${token}:${code}`);
+      return Promise.resolve({ kind: "released" });
     },
   });
 
@@ -300,6 +349,12 @@ Deno.test("each item is validated, deleted and confirmed with count-only output"
   for (const path of paths) {
     assert(!responseText.includes(path), "object path is not disclosed");
   }
+  for (const item of items) {
+    assert(
+      !responseText.includes(item.leaseToken),
+      "cleanup lease is not disclosed",
+    );
+  }
   assert(!responseText.includes("private-albums"), "bucket is not disclosed");
   assert(!responseText.includes("provider detail"), "exception is sanitized");
   assertEquals(trace[0], "batch:5", "caller RPC happens first");
@@ -308,8 +363,59 @@ Deno.test("each item is validated, deleted and confirmed with count-only output"
     "unsafe path never reaches service deletion",
   );
   assert(
-    !trace.includes(`confirm:${deleteFailure}`),
+    !trace.some((entry) => entry.startsWith(`confirm:${deleteFailure}:`)),
     "failed deletion is not confirmed",
+  );
+  for (
+    const path of [
+      unsafe,
+      deleteFailure,
+      pendingConfirmation,
+      confirmationFailure,
+    ]
+  ) {
+    assert(
+      trace.some((entry) =>
+        entry.startsWith(`fail:${path}:`) && entry.endsWith(":DELETE_FAILED")
+      ),
+      `failed lease is released for ${path}`,
+    );
+  }
+  assert(
+    !trace.some((entry) => entry.startsWith(`fail:${successful}:`)),
+    "confirmed deletion is not failed",
+  );
+});
+
+Deno.test("invalid lease data never reaches Storage and valid token is failed", async () => {
+  const first = objectPath("333333333338", "jpg");
+  const second = objectPath("333333333339", "png");
+  const trace: string[] = [];
+  const response = await testHandler({
+    batch: {
+      kind: "ok",
+      items: [
+        lease(first, "invalid-token"),
+        lease(second, anotherLeaseToken, "invalid-timestamp"),
+      ],
+    },
+    trace,
+  })(cleanupRequest({ batch_size: 2 }));
+  const body = await response.json();
+  assertEquals(response.status, 200, "invalid lease batch status");
+  assertEquals(body.processed, 2, "invalid lease processed");
+  assertEquals(body.deleted, 0, "invalid lease deleted");
+  assertEquals(body.failed, 2, "invalid lease failed");
+  assert(!trace.some((entry) => entry.startsWith("delete:")), "no delete");
+  assert(
+    !trace.some((entry) => entry.startsWith(`fail:${first}:`)),
+    "malformed token is never used",
+  );
+  assert(
+    trace.includes(
+      `fail:${second}:${anotherLeaseToken}:DELETE_FAILED`,
+    ),
+    "valid token releases invalid timestamp lease",
   );
 });
 
@@ -328,7 +434,7 @@ Deno.test("empty and repeated cleanup batches are idempotent", async () => {
 
   const path = objectPath("333333333335", "webp");
   const handler = testHandler({
-    batch: { kind: "ok", objectPaths: [path] },
+    batch: { kind: "ok", items: [lease(path)] },
   });
   for (let attempt = 0; attempt < 2; attempt++) {
     const response = await handler(cleanupRequest({ batch_size: 1 }));
@@ -342,12 +448,17 @@ Deno.test("empty and repeated cleanup batches are idempotent", async () => {
 
 Deno.test("oversized or duplicate RPC batches fail closed before deletion", async () => {
   const path = objectPath("333333333336", "jpg");
+  const second = objectPath("333333333337");
   for (
-    const objectPaths of [[path, objectPath("333333333337")], [path, path]]
+    const items of [
+      [lease(path, leaseToken), lease(second, anotherLeaseToken)],
+      [lease(path, leaseToken), lease(path, anotherLeaseToken)],
+      [lease(path, leaseToken), lease(second, leaseToken)],
+    ]
   ) {
     const trace: string[] = [];
     const response = await testHandler({
-      batch: { kind: "ok", objectPaths },
+      batch: { kind: "ok", items },
       trace,
     })(cleanupRequest({ batch_size: 1 }));
     assertEquals(response.status, 503, "invalid RPC batch status");
