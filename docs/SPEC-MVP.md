@@ -25,6 +25,8 @@ Permitir que pessoas adultas descubram perfis próximos e iniciem conversas dire
 
 - Cadastro por e-mail/OTP na primeira versão. No Android de desenvolvimento, o provedor envia um código numérico de seis dígitos; a pessoa pode consultar o e-mail em outro aparelho e o app valida automaticamente assim que o sexto dígito é informado. A validação confirma ou cria a conta e estabelece sua sessão autenticada.
 - O código de autenticação é validado pelo Supabase Auth, possui expiração e nunca é registrado em logs, fixtures ou mensagens de erro.
+- Solicitação, reenvio e validação do OTP são operações exclusivas no Android: enquanto uma delas estiver em andamento, ações repetidas não iniciam outra chamada ao provedor. O estado “código enviado” só aparece depois da confirmação do serviço.
+- Se a solicitação expirar sem resposta, o app trata a entrega como indeterminada: não repete automaticamente o envio, mantém disponível a entrada do código que ainda possa chegar e explica que a pessoa deve conferir o e-mail antes de reenviar. Reenvios respeitam o intervalo local configurado e qualquer limite mais restritivo informado pelo provedor.
 - O APK recebe apenas a URL do projeto e a chave publicável. Chave secreta, `service_role`, senha do banco e token de sessão não fazem parte da configuração do cliente.
 - O onboarding básico exige autodeclaração de maioridade e aceite dos Termos de Uso/Política de Privacidade. Ele recebe somente o ano de nascimento, valida no servidor a declaração 18+ e registra a versão aceita dos documentos legais.
 - O onboarding também apresenta identidade de gênero e preferência de descoberta como escolhas distintas. `gender_identity_ids` contém uma ou mais opções de um catálogo versionado, incluindo autodescrição e “prefiro não informar”; esta última é exclusiva. `looking_for_gender_ids` é uma seleção privada de uma ou mais opções do mesmo catálogo ou o valor exclusivo “todas as pessoas”.
@@ -234,6 +236,8 @@ O limite de um álbum e dez imagens é imposto atomicamente no servidor, inclusi
 - **AC-ALBUM-08:** antes de abrir, o destinatário vê aviso sobre conteúdo privado e possibilidade de captura; o fluxo não oferece vídeo, expiração nem visualização única.
 - **AC-AUTH-01:** informar e-mail e um código OTP válido cria a sessão no app; código inválido ou expirado não autentica.
 - **AC-AUTH-02:** o app aceita somente seis dígitos no campo OTP, inicia a validação automaticamente ao receber o sexto dígito e não persiste nem registra o código informado.
+- **AC-AUTH-03:** dois toques ou callbacks imediatos de envio, reenvio ou validação geram no máximo uma chamada ao provedor enquanto a operação estiver pendente; os controles de autenticação permanecem desabilitados até sua conclusão.
+- **AC-AUTH-04:** após envio confirmado, timeout de entrega indeterminada ou limite remoto, o reenvio respeita o cooldown configurado. Timeout nunca dispara retry automático nem impede validar um código que chegue, e rate limit/timeout são explicados sem serem apresentados como falha genérica de conexão.
 - **AC-DISC-01:** a grade carrega em páginas e permite continuar rolando sem recarregar os primeiros itens.
 - **AC-DISC-02:** nenhuma tela mostra a distância exata ou coordenadas.
 - **AC-DISC-03:** preferência específica retorna, antes da paginação, somente perfis com identidade publicada compatível; alterar a preferência invalida o cursor anterior.

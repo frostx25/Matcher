@@ -3,8 +3,18 @@ package com.matcher.app.data.remote
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.exception.AuthErrorCode
+import io.github.jan.supabase.auth.exception.AuthRestException
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.exceptions.HttpRequestException
+import io.github.jan.supabase.exceptions.RestException
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.plugins.ResponseException
+import io.ktor.http.HttpHeaders
+import java.io.IOException
+import java.net.SocketTimeoutException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -25,6 +35,19 @@ interface AuthGateway {
     suspend fun signOut()
 }
 
+enum class EmailOtpRequestFailure {
+    RateLimited,
+    DeliveryUnknown,
+    NetworkUnavailable,
+    ProviderRejected,
+}
+
+class EmailOtpRequestException(
+    val failure: EmailOtpRequestFailure,
+    val retryAfterSeconds: Int? = null,
+    cause: Throwable? = null,
+) : Exception("Email OTP request failed", cause)
+
 class SupabaseAuthGateway(
     private val client: SupabaseClient,
 ) : AuthGateway {
@@ -40,9 +63,19 @@ class SupabaseAuthGateway(
     }
 
     override suspend fun requestEmailOtp(email: String) {
-        client.auth.signInWith(OTP) {
-            this.email = email.trim()
-            createUser = true
+        try {
+            client.auth.signInWith(OTP) {
+                this.email = email.trim()
+                createUser = true
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw EmailOtpRequestException(
+                failure = error.toEmailOtpRequestFailure(),
+                retryAfterSeconds = error.retryAfterSeconds(),
+                cause = error,
+            )
         }
     }
 
@@ -58,3 +91,38 @@ class SupabaseAuthGateway(
         client.auth.signOut()
     }
 }
+
+internal fun Throwable.toEmailOtpRequestFailure(): EmailOtpRequestFailure = when (this) {
+    is EmailOtpRequestException -> failure
+    is AuthRestException -> when {
+        errorCode == AuthErrorCode.OverEmailSendRateLimit ||
+            errorCode == AuthErrorCode.OverRequestRateLimit -> EmailOtpRequestFailure.RateLimited
+        errorCode == AuthErrorCode.RequestTimeout -> EmailOtpRequestFailure.DeliveryUnknown
+        statusCode == 429 -> EmailOtpRequestFailure.RateLimited
+        statusCode == 408 || statusCode == 504 -> EmailOtpRequestFailure.DeliveryUnknown
+        else -> EmailOtpRequestFailure.ProviderRejected
+    }
+    is RestException -> when (statusCode) {
+        429 -> EmailOtpRequestFailure.RateLimited
+        408, 504 -> EmailOtpRequestFailure.DeliveryUnknown
+        else -> EmailOtpRequestFailure.ProviderRejected
+    }
+    is HttpRequestTimeoutException,
+    is SocketTimeoutException -> EmailOtpRequestFailure.DeliveryUnknown
+    is HttpRequestException -> EmailOtpRequestFailure.NetworkUnavailable
+    is ResponseException -> when (response.status.value) {
+        429 -> EmailOtpRequestFailure.RateLimited
+        408, 504 -> EmailOtpRequestFailure.DeliveryUnknown
+        else -> EmailOtpRequestFailure.ProviderRejected
+    }
+    is IOException -> EmailOtpRequestFailure.NetworkUnavailable
+    else -> EmailOtpRequestFailure.ProviderRejected
+}
+
+private fun Throwable.retryAfterSeconds(): Int? = (this as? RestException)
+    ?.response
+    ?.headers
+    ?.get(HttpHeaders.RetryAfter)
+    ?.trim()
+    ?.toIntOrNull()
+    ?.coerceIn(1, 3_600)

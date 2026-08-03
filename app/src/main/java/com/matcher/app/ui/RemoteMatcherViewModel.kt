@@ -8,6 +8,8 @@ import com.matcher.app.data.remote.AgeVerificationStatus
 import com.matcher.app.data.remote.AuthGateway
 import com.matcher.app.data.remote.CompleteOnboardingRequest
 import com.matcher.app.data.remote.DiscoveryPage
+import com.matcher.app.data.remote.EmailOtpRequestException
+import com.matcher.app.data.remote.EmailOtpRequestFailure
 import com.matcher.app.data.remote.GenderSettings
 import com.matcher.app.data.remote.MatcherSession
 import com.matcher.app.data.remote.PrivateAlbum
@@ -21,14 +23,20 @@ import com.matcher.app.data.remote.RemoteProfile
 import com.matcher.app.data.remote.SharedPrivateAlbum
 import com.matcher.app.data.remote.UpdateGenderSettingsRequest
 import com.matcher.app.data.remote.matcherCode
+import com.matcher.app.data.remote.toEmailOtpRequestFailure
 import com.matcher.app.domain.chat.ChatSnapshot
 import com.matcher.app.domain.chat.ReportReason
 import com.matcher.app.domain.chat.SendMessageResult
 import com.matcher.app.domain.chat.StartConversationResult
 import java.net.URI
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,14 +45,23 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 internal const val EMAIL_OTP_LENGTH = 6
+internal const val EMAIL_OTP_RESEND_COOLDOWN_SECONDS = 60
+internal const val EMAIL_OTP_OPERATION_TIMEOUT_MILLIS = 15_000L
 
 enum class SignedInStage {
     Resolving,
     Onboarding,
     Active,
     Unavailable,
+}
+
+enum class OtpDeliveryStatus {
+    Confirmed,
+    Indeterminate,
+    RateLimited,
 }
 
 sealed interface RemoteMatcherEffect {
@@ -97,6 +114,9 @@ data class RemoteMatcherUiState(
     val ageVerificationConsentGranted: Boolean = false,
     val ageVerificationOpen: Boolean = false,
     val otpRequestedFor: String? = null,
+    val otpDeliveryStatus: OtpDeliveryStatus? = null,
+    val otpChallengeGeneration: Long = 0,
+    val otpResendSecondsRemaining: Int = 0,
     val profile: RemoteProfile? = null,
     val genderSettings: GenderSettings? = null,
     val privateAlbum: PrivateAlbumUiState = PrivateAlbumUiState(),
@@ -127,6 +147,8 @@ class RemoteMatcherViewModel(
     val effects: Flow<RemoteMatcherEffect> = effectChannel.receiveAsFlow()
 
     private var realtimeJob: Job? = null
+    private var authJob: Job? = null
+    private var otpCooldownJob: Job? = null
     private var ageVerificationJob: Job? = null
     private var profilePhotoJob: Job? = null
     private var discoveryPaginationJob: Job? = null
@@ -137,11 +159,20 @@ class RemoteMatcherViewModel(
     private var privateAlbumGeneration = 0L
     private var lastAgeVerificationReturnSignal = 0
     private var ageVerificationRefreshPending = false
+    private val authOperationInFlight = AtomicBoolean(false)
+    private var authOperationGeneration = 0L
+    private val otpCooldownSecondsByEmail = mutableMapOf<String, Int>()
 
     init {
         viewModelScope.launch {
             authGateway.session.collectLatest { session ->
                 sessionGeneration += 1
+                cancelAuthOperation()
+                if (session is MatcherSession.SignedIn) {
+                    otpCooldownJob?.cancel()
+                    otpCooldownJob = null
+                    otpCooldownSecondsByEmail.clear()
+                }
                 invalidatePrivateAlbumWork()
                 wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
                 realtimeJob?.cancel()
@@ -160,6 +191,21 @@ class RemoteMatcherViewModel(
                             current.otpRequestedFor
                         } else {
                             null
+                        },
+                        otpDeliveryStatus = if (session is MatcherSession.SignedOut) {
+                            current.otpDeliveryStatus
+                        } else {
+                            null
+                        },
+                        otpChallengeGeneration = if (session is MatcherSession.SignedOut) {
+                            current.otpChallengeGeneration
+                        } else {
+                            0
+                        },
+                        otpResendSecondsRemaining = if (session is MatcherSession.SignedOut) {
+                            current.otpResendSecondsRemaining
+                        } else {
+                            0
                         },
                         signedInStage = SignedInStage.Resolving,
                         ageVerificationStatus = AgeVerificationStatus.NotStarted,
@@ -193,10 +239,56 @@ class RemoteMatcherViewModel(
             setError("Digite um e-mail válido.")
             return
         }
-        launchRemote { token ->
+        val cooldownSeconds = otpCooldownSecondsByEmail[normalized.otpCooldownKey()] ?: 0
+        if (cooldownSeconds > 0) {
+            setError("Aguarde ${cooldownSeconds}s para reenviar o código.")
+            return
+        }
+        launchAuthRemote(
+            errorMessage = { it.toOtpRequestMessage() },
+            onFailure = { error ->
+                val failure = error.toEmailOtpRequestFailure()
+                if (
+                    failure == EmailOtpRequestFailure.RateLimited ||
+                    failure == EmailOtpRequestFailure.DeliveryUnknown
+                ) {
+                    mutableState.update { current ->
+                        val shouldResetInput =
+                            failure == EmailOtpRequestFailure.DeliveryUnknown ||
+                                current.otpRequestedFor != normalized
+                        current.copy(
+                            otpRequestedFor = normalized,
+                            otpDeliveryStatus = when (failure) {
+                                EmailOtpRequestFailure.RateLimited -> OtpDeliveryStatus.RateLimited
+                                else -> OtpDeliveryStatus.Indeterminate
+                            },
+                            otpChallengeGeneration = if (shouldResetInput) {
+                                current.otpChallengeGeneration + 1
+                            } else {
+                                current.otpChallengeGeneration
+                            },
+                        )
+                    }
+                    val retryAfterSeconds = (error as? EmailOtpRequestException)
+                        ?.retryAfterSeconds
+                        ?: 0
+                    startOtpResendCooldown(
+                        normalized,
+                        maxOf(EMAIL_OTP_RESEND_COOLDOWN_SECONDS, retryAfterSeconds),
+                    )
+                }
+            },
+        ) { token ->
             authGateway.requestEmailOtp(normalized)
             ensureSessionWorkIsCurrent(token)
-            mutableState.update { it.copy(otpRequestedFor = normalized) }
+            mutableState.update {
+                it.copy(
+                    otpRequestedFor = normalized,
+                    otpDeliveryStatus = OtpDeliveryStatus.Confirmed,
+                    otpChallengeGeneration = it.otpChallengeGeneration + 1,
+                )
+            }
+            startOtpResendCooldown(normalized)
         }
     }
 
@@ -206,14 +298,22 @@ class RemoteMatcherViewModel(
             setError("Digite o código de 6 dígitos.")
             return
         }
-        launchRemote(errorMessage = "Código inválido ou expirado. Solicite um novo código.") { token ->
+        launchAuthRemote(errorMessage = { it.toOtpVerificationMessage() }) { token ->
             authGateway.verifyEmailOtp(email, normalizedToken)
             ensureSessionWorkIsCurrent(token)
         }
     }
 
     fun changeOtpEmail() {
-        mutableState.update { it.copy(otpRequestedFor = null, errorMessage = null) }
+        if (authOperationInFlight.get()) return
+        mutableState.update {
+            it.copy(
+                otpRequestedFor = null,
+                otpDeliveryStatus = null,
+                otpResendSecondsRemaining = 0,
+                errorMessage = null,
+            )
+        }
     }
 
     fun completeOnboarding(
@@ -1209,6 +1309,89 @@ class RemoteMatcherViewModel(
         refreshAgeVerificationStatus()
     }
 
+    private fun launchAuthRemote(
+        errorMessage: (Throwable) -> String,
+        onFailure: (Throwable) -> Unit = {},
+        block: suspend (SessionWorkToken) -> Unit,
+    ) {
+        if (!authOperationInFlight.compareAndSet(false, true)) return
+        val operationGeneration = ++authOperationGeneration
+        val token = currentSessionWorkToken()
+        mutableState.update { it.copy(loading = true, errorMessage = null) }
+        val operationJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                if (!isSessionWorkCurrent(token)) return@launch
+                withTimeout(EMAIL_OTP_OPERATION_TIMEOUT_MILLIS) {
+                    block(token)
+                }
+            } catch (error: TimeoutCancellationException) {
+                if (isSessionWorkCurrent(token)) {
+                    val timeout = EmailOtpRequestException(
+                        failure = EmailOtpRequestFailure.DeliveryUnknown,
+                        cause = error,
+                    )
+                    onFailure(timeout)
+                    setError(errorMessage(timeout))
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (isSessionWorkCurrent(token)) {
+                    onFailure(error)
+                    setError(errorMessage(error))
+                }
+            } finally {
+                if (authOperationGeneration == operationGeneration) {
+                    authJob = null
+                    authOperationInFlight.set(false)
+                    if (isSessionWorkCurrent(token)) {
+                        mutableState.update { it.copy(loading = false) }
+                    }
+                }
+            }
+        }
+        authJob = operationJob
+        operationJob.start()
+    }
+
+    private fun cancelAuthOperation() {
+        authOperationGeneration += 1
+        authJob?.cancel()
+        authJob = null
+        authOperationInFlight.set(false)
+    }
+
+    private fun startOtpResendCooldown(email: String, minimumSeconds: Int = EMAIL_OTP_RESEND_COOLDOWN_SECONDS) {
+        val cooldownKey = email.otpCooldownKey()
+        otpCooldownSecondsByEmail[cooldownKey] = maxOf(
+            otpCooldownSecondsByEmail[cooldownKey] ?: 0,
+            minimumSeconds,
+        )
+        updateVisibleOtpCooldown()
+        if (otpCooldownJob?.isActive == true) return
+        otpCooldownJob = viewModelScope.launch {
+            while (otpCooldownSecondsByEmail.isNotEmpty()) {
+                delay(1_000)
+                otpCooldownSecondsByEmail.replaceAll { _, remaining ->
+                    (remaining - 1).coerceAtLeast(0)
+                }
+                otpCooldownSecondsByEmail.entries.removeAll { it.value == 0 }
+                updateVisibleOtpCooldown()
+            }
+            otpCooldownJob = null
+        }
+    }
+
+    private fun updateVisibleOtpCooldown() {
+        mutableState.update { current ->
+            current.copy(
+                otpResendSecondsRemaining = current.otpRequestedFor
+                    ?.let { otpCooldownSecondsByEmail[it.otpCooldownKey()] }
+                    ?: 0,
+            )
+        }
+    }
+
     private fun launchRemote(
         errorMessage: String? = null,
         block: suspend (SessionWorkToken) -> Unit,
@@ -1269,6 +1452,8 @@ class RemoteMatcherViewModel(
     }
 }
 
+private fun String.otpCooldownKey(): String = trim().lowercase(Locale.ROOT)
+
 internal fun isTrustedAgeVerificationUrl(value: String): Boolean = runCatching {
     val uri = URI(value)
     uri.scheme.equals("https", ignoreCase = true) &&
@@ -1279,6 +1464,30 @@ internal fun isTrustedAgeVerificationUrl(value: String): Boolean = runCatching {
 
 internal const val AGE_VERIFICATION_CONSENT_REQUIRED_MESSAGE =
     "Autorize o processamento pela Didit antes de iniciar a verificação."
+
+private fun Throwable.toOtpRequestMessage(): String = when (
+    (this as? EmailOtpRequestException)?.failure ?: toEmailOtpRequestFailure()
+) {
+    EmailOtpRequestFailure.RateLimited ->
+        "Muitos códigos foram solicitados. Aguarde antes de tentar novamente."
+    EmailOtpRequestFailure.DeliveryUnknown ->
+        "A resposta demorou, mas o código pode ter sido enviado. Verifique seu e-mail e digite-o se chegar."
+    EmailOtpRequestFailure.NetworkUnavailable ->
+        "Não foi possível conectar ao serviço de login. Confira a internet e tente novamente."
+    EmailOtpRequestFailure.ProviderRejected ->
+        "O serviço de e-mail não conseguiu enviar o código. Tente novamente em instantes."
+}
+
+private fun Throwable.toOtpVerificationMessage(): String = when (toEmailOtpRequestFailure()) {
+    EmailOtpRequestFailure.RateLimited ->
+        "Muitas verificações foram feitas. Aguarde antes de tentar novamente."
+    EmailOtpRequestFailure.DeliveryUnknown ->
+        "A validação demorou mais que o esperado. Confira a conexão e digite o código novamente."
+    EmailOtpRequestFailure.NetworkUnavailable ->
+        "Não foi possível conectar ao serviço de login. Confira a internet e tente novamente."
+    EmailOtpRequestFailure.ProviderRejected ->
+        "Código inválido ou expirado. Solicite um novo código."
+}
 
 private fun Throwable.toUserMessage(): String = when (matcherCode()) {
     "ADULTS_ONLY" -> "O Matcher é exclusivo para pessoas com 18 anos ou mais."

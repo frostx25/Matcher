@@ -1,17 +1,21 @@
 package com.matcher.app
 
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.RemoteAuthScreen
 import com.matcher.app.ui.RemoteOnboardingScreen
+import com.matcher.app.ui.OtpDeliveryStatus
 import com.matcher.app.ui.theme.MatcherTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -31,6 +35,9 @@ class RemoteAuthScreenTest {
             MatcherTheme {
                 RemoteAuthScreen(
                     otpRequestedFor = "pessoa@matcher.invalid",
+                    otpDeliveryStatus = OtpDeliveryStatus.Confirmed,
+                    otpChallengeGeneration = 1,
+                    otpResendSecondsRemaining = 0,
                     loading = false,
                     errorMessage = null,
                     onRequestOtp = {},
@@ -48,6 +55,73 @@ class RemoteAuthScreenTest {
             assertEquals("pessoa@matcher.invalid", verifiedEmail)
             assertEquals("123456", verifiedOtp)
         }
+    }
+
+    @Test
+    fun resendStaysDisabledDuringOtpCooldown() {
+        composeRule.setContent {
+            MatcherTheme {
+                RemoteAuthScreen(
+                    otpRequestedFor = "pessoa@matcher.invalid",
+                    otpDeliveryStatus = OtpDeliveryStatus.Confirmed,
+                    otpChallengeGeneration = 1,
+                    otpResendSecondsRemaining = 17,
+                    loading = false,
+                    errorMessage = null,
+                    onRequestOtp = {},
+                    onVerifyOtp = { _, _ -> },
+                    onChangeEmail = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("resend-email-otp").assertIsNotEnabled()
+    }
+
+    @Test
+    fun indeterminateDeliveryDoesNotClaimThatTheCodeWasSent() {
+        composeRule.setContent {
+            MatcherTheme {
+                RemoteAuthScreen(
+                    otpRequestedFor = "pessoa@matcher.invalid",
+                    otpDeliveryStatus = OtpDeliveryStatus.Indeterminate,
+                    otpChallengeGeneration = 1,
+                    otpResendSecondsRemaining = 60,
+                    loading = false,
+                    errorMessage = null,
+                    onRequestOtp = {},
+                    onVerifyOtp = { _, _ -> },
+                    onChangeEmail = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("O envio para", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Enviamos um código", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun newOtpChallengeClearsThePreviousSixDigits() {
+        val generation = mutableLongStateOf(1)
+        composeRule.setContent {
+            MatcherTheme {
+                RemoteAuthScreen(
+                    otpRequestedFor = "pessoa@matcher.invalid",
+                    otpDeliveryStatus = OtpDeliveryStatus.Confirmed,
+                    otpChallengeGeneration = generation.longValue,
+                    otpResendSecondsRemaining = 0,
+                    loading = false,
+                    errorMessage = null,
+                    onRequestOtp = {},
+                    onVerifyOtp = { _, _ -> },
+                    onChangeEmail = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("remote-otp-input").performTextInput("123456")
+        composeRule.runOnIdle { generation.longValue += 1 }
+        composeRule.onNodeWithTag("remote-otp-input").assertTextEquals("")
     }
 
     @Test

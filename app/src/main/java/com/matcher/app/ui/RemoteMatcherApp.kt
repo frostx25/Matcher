@@ -113,6 +113,9 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
         MatcherSession.SignedOut,
         MatcherSession.RefreshFailed -> RemoteAuthScreen(
             otpRequestedFor = state.otpRequestedFor,
+            otpDeliveryStatus = state.otpDeliveryStatus,
+            otpChallengeGeneration = state.otpChallengeGeneration,
+            otpResendSecondsRemaining = state.otpResendSecondsRemaining,
             loading = state.loading,
             errorMessage = state.errorMessage,
             onRequestOtp = remoteViewModel::requestOtp,
@@ -165,6 +168,9 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
 @Composable
 internal fun RemoteAuthScreen(
     otpRequestedFor: String?,
+    otpDeliveryStatus: OtpDeliveryStatus?,
+    otpChallengeGeneration: Long,
+    otpResendSecondsRemaining: Int,
     loading: Boolean,
     errorMessage: String?,
     onRequestOtp: (String) -> Unit,
@@ -172,7 +178,7 @@ internal fun RemoteAuthScreen(
     onChangeEmail: () -> Unit,
 ) {
     var email by rememberSaveable { mutableStateOf(otpRequestedFor.orEmpty()) }
-    var otp by remember(otpRequestedFor) { mutableStateOf("") }
+    var otp by remember(otpRequestedFor, otpChallengeGeneration) { mutableStateOf("") }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -201,7 +207,16 @@ internal fun RemoteAuthScreen(
             ) { Text("Enviar código", fontWeight = FontWeight.Bold) }
         } else {
             Text(
-                "Enviamos um código de $EMAIL_OTP_LENGTH dígitos para $otpRequestedFor. Consulte o e-mail em qualquer aparelho e digite o código abaixo.",
+                when (otpDeliveryStatus) {
+                    OtpDeliveryStatus.Confirmed ->
+                        "Enviamos um código de $EMAIL_OTP_LENGTH dígitos para $otpRequestedFor. Consulte o e-mail em qualquer aparelho e digite o código abaixo."
+                    OtpDeliveryStatus.Indeterminate ->
+                        "O envio para $otpRequestedFor ainda não foi confirmado. Se o código chegar, digite-o abaixo antes de solicitar outro."
+                    OtpDeliveryStatus.RateLimited ->
+                        "Já houve uma solicitação recente para $otpRequestedFor. Digite o código mais recente que recebeu ou aguarde para reenviar."
+                    null ->
+                        "Digite abaixo o código de $EMAIL_OTP_LENGTH dígitos recebido por e-mail."
+                },
                 color = TextSecondary,
                 fontSize = 13.sp,
             )
@@ -227,9 +242,17 @@ internal fun RemoteAuthScreen(
             )
             OutlinedButton(
                 onClick = { onRequestOtp(otpRequestedFor) },
-                enabled = !loading,
+                enabled = !loading && otpResendSecondsRemaining == 0,
                 modifier = Modifier.fillMaxWidth().testTag("resend-email-otp"),
-            ) { Text("Reenviar código") }
+            ) {
+                Text(
+                    if (otpResendSecondsRemaining > 0) {
+                        "Reenviar em ${otpResendSecondsRemaining}s"
+                    } else {
+                        "Reenviar código"
+                    },
+                )
+            }
             OutlinedButton(
                 onClick = onChangeEmail,
                 enabled = !loading,

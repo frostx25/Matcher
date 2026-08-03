@@ -8,6 +8,8 @@ import com.matcher.app.data.remote.AuthGateway
 import com.matcher.app.data.remote.CompleteOnboardingRequest
 import com.matcher.app.data.remote.CompleteOnboardingResponse
 import com.matcher.app.data.remote.DiscoveryPage
+import com.matcher.app.data.remote.EmailOtpRequestException
+import com.matcher.app.data.remote.EmailOtpRequestFailure
 import com.matcher.app.data.remote.MatcherSession
 import com.matcher.app.data.remote.PrivateAlbum
 import com.matcher.app.data.remote.PrivateAlbumContent
@@ -36,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
@@ -72,19 +75,246 @@ class RemoteMatcherViewModelTest {
     fun otpRequestNormalizesEmailAndKeepsOnlyTheDeliveryState() = runTest(dispatcher) {
         val auth = FakeAuthGateway()
         val viewModel = viewModel(auth = auth)
+        runCurrent()
 
         viewModel.requestOtp("  pessoa@matcher.invalid ")
         advanceUntilIdle()
 
         assertEquals("pessoa@matcher.invalid", auth.requestedEmail)
         assertEquals("pessoa@matcher.invalid", viewModel.uiState.value.otpRequestedFor)
+        assertEquals(OtpDeliveryStatus.Confirmed, viewModel.uiState.value.otpDeliveryStatus)
         assertNull(viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun rapidOtpRequestsStartOnlyOneProviderCall() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply { requestGate = CompletableDeferred() }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        assertTrue(viewModel.uiState.value.loading)
+        runCurrent()
+
+        assertEquals(1, auth.requestCalls)
+        auth.requestGate?.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("pessoa@matcher.invalid", viewModel.uiState.value.otpRequestedFor)
+    }
+
+    @Test
+    fun resendIsBlockedDuringTheLocalCooldown() = runTest(dispatcher) {
+        val auth = FakeAuthGateway()
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        assertEquals(EMAIL_OTP_RESEND_COOLDOWN_SECONDS, viewModel.uiState.value.otpResendSecondsRemaining)
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        assertEquals(1, auth.requestCalls)
+
+        advanceUntilIdle()
+        assertEquals(0, viewModel.uiState.value.otpResendSecondsRemaining)
+    }
+
+    @Test
+    fun changingThenReenteringTheSameEmailDoesNotBypassCooldown() = runTest(dispatcher) {
+        val auth = FakeAuthGateway()
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        viewModel.changeOtpEmail()
+        viewModel.requestOtp("PESSOA@MATCHER.INVALID")
+        runCurrent()
+
+        assertEquals(1, auth.requestCalls)
+        assertEquals(null, viewModel.uiState.value.otpRequestedFor)
+        assertTrue(viewModel.uiState.value.errorMessage.orEmpty().startsWith("Aguarde "))
+        advanceTimeBy(EMAIL_OTP_RESEND_COOLDOWN_SECONDS * 1_000L)
+        runCurrent()
+
+        viewModel.requestOtp("PESSOA@MATCHER.INVALID")
+        runCurrent()
+        assertEquals(2, auth.requestCalls)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun confirmedResendCreatesANewOtpInputGeneration() = runTest(dispatcher) {
+        val auth = FakeAuthGateway()
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        val firstGeneration = viewModel.uiState.value.otpChallengeGeneration
+        advanceTimeBy(EMAIL_OTP_RESEND_COOLDOWN_SECONDS * 1_000L)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+
+        assertEquals(2, auth.requestCalls)
+        assertEquals(firstGeneration + 1, viewModel.uiState.value.otpChallengeGeneration)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun stalledOtpRequestBecomesIndeterminateAtTheClientTimeout() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply { requestGate = CompletableDeferred() }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        advanceTimeBy(EMAIL_OTP_OPERATION_TIMEOUT_MILLIS)
+        runCurrent()
+
+        assertFalse(viewModel.uiState.value.loading)
+        assertEquals(OtpDeliveryStatus.Indeterminate, viewModel.uiState.value.otpDeliveryStatus)
+        assertEquals(1, auth.requestCalls)
+        assertEquals(
+            "A resposta demorou, mas o código pode ter sido enviado. Verifique seu e-mail e digite-o se chegar.",
+            viewModel.uiState.value.errorMessage,
+        )
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun sessionChangeCancelsOldOtpWorkAndAllowsANewRequest() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply { requestGate = CompletableDeferred() }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        assertEquals(1, auth.requestCalls)
+
+        auth.session.value = MatcherSession.Loading
+        runCurrent()
+        auth.session.value = MatcherSession.SignedOut
+        auth.requestGate = null
+        runCurrent()
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+
+        assertEquals(2, auth.requestCalls)
+        assertEquals("pessoa@matcher.invalid", viewModel.uiState.value.otpRequestedFor)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun timeoutKeepsOtpInputAvailableWithoutAutomaticRetry() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply {
+            requestFailure = EmailOtpRequestException(EmailOtpRequestFailure.DeliveryUnknown)
+        }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+
+        assertEquals(1, auth.requestCalls)
+        assertEquals("pessoa@matcher.invalid", viewModel.uiState.value.otpRequestedFor)
+        assertEquals(OtpDeliveryStatus.Indeterminate, viewModel.uiState.value.otpDeliveryStatus)
+        assertEquals(EMAIL_OTP_RESEND_COOLDOWN_SECONDS, viewModel.uiState.value.otpResendSecondsRemaining)
+        assertEquals(
+            "A resposta demorou, mas o código pode ter sido enviado. Verifique seu e-mail e digite-o se chegar.",
+            viewModel.uiState.value.errorMessage,
+        )
+
+        advanceUntilIdle()
+        assertEquals(1, auth.requestCalls)
+    }
+
+    @Test
+    fun rateLimitKeepsTheExistingOtpChallengeAvailable() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply {
+            requestFailure = EmailOtpRequestException(EmailOtpRequestFailure.RateLimited)
+        }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+
+        assertEquals("pessoa@matcher.invalid", viewModel.uiState.value.otpRequestedFor)
+        assertEquals(OtpDeliveryStatus.RateLimited, viewModel.uiState.value.otpDeliveryStatus)
+        assertEquals(EMAIL_OTP_RESEND_COOLDOWN_SECONDS, viewModel.uiState.value.otpResendSecondsRemaining)
+        assertEquals(
+            "Muitos códigos foram solicitados. Aguarde antes de tentar novamente.",
+            viewModel.uiState.value.errorMessage,
+        )
+
+        advanceUntilIdle()
+        assertEquals(1, auth.requestCalls)
+    }
+
+    @Test
+    fun providerRetryAfterExtendsTheLocalCooldown() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply {
+            requestFailure = EmailOtpRequestException(
+                failure = EmailOtpRequestFailure.RateLimited,
+                retryAfterSeconds = 90,
+            )
+        }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+
+        assertEquals(90, viewModel.uiState.value.otpResendSecondsRemaining)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun verifyAndResendCannotOverlap() = runTest(dispatcher) {
+        val auth = FakeAuthGateway()
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        advanceUntilIdle()
+        auth.verifyGate = CompletableDeferred()
+
+        viewModel.verifyOtp("pessoa@matcher.invalid", "123456")
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+
+        assertEquals(1, auth.verifyCalls)
+        assertEquals(1, auth.requestCalls)
+        auth.verifyGate?.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun changeEmailIsIgnoredWhileOtpOperationIsActive() = runTest(dispatcher) {
+        val auth = FakeAuthGateway()
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        advanceUntilIdle()
+        auth.verifyGate = CompletableDeferred()
+
+        viewModel.verifyOtp("pessoa@matcher.invalid", "123456")
+        viewModel.changeOtpEmail()
+
+        assertEquals("pessoa@matcher.invalid", viewModel.uiState.value.otpRequestedFor)
+        auth.verifyGate?.complete(Unit)
+        advanceUntilIdle()
     }
 
     @Test
     fun validOtpIsDelegatedWithoutBeingStoredInUiState() = runTest(dispatcher) {
         val auth = FakeAuthGateway()
         val viewModel = viewModel(auth = auth)
+        runCurrent()
 
         viewModel.verifyOtp("pessoa@matcher.invalid", "123456")
         advanceUntilIdle()
@@ -96,9 +326,31 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun signedInSessionClearsOtpChallengeAndCooldown() = runTest(dispatcher) {
+        val auth = FakeAuthGateway().apply {
+            signedInAfterVerify = MatcherSession.SignedIn("user-test")
+        }
+        val viewModel = viewModel(auth = auth)
+        runCurrent()
+        viewModel.requestOtp("pessoa@matcher.invalid")
+        runCurrent()
+        assertEquals(OtpDeliveryStatus.Confirmed, viewModel.uiState.value.otpDeliveryStatus)
+
+        viewModel.verifyOtp("pessoa@matcher.invalid", "123456")
+        advanceUntilIdle()
+
+        assertEquals(MatcherSession.SignedIn("user-test"), viewModel.uiState.value.session)
+        assertNull(viewModel.uiState.value.otpRequestedFor)
+        assertNull(viewModel.uiState.value.otpDeliveryStatus)
+        assertEquals(0, viewModel.uiState.value.otpResendSecondsRemaining)
+        assertEquals(SignedInStage.Onboarding, viewModel.uiState.value.signedInStage)
+    }
+
+    @Test
     fun malformedOtpIsRejectedBeforeCallingAuthProvider() = runTest(dispatcher) {
         val auth = FakeAuthGateway()
         val viewModel = viewModel(auth = auth)
+        runCurrent()
 
         viewModel.verifyOtp("pessoa@matcher.invalid", "12345")
         advanceUntilIdle()
@@ -911,14 +1163,26 @@ private class FakeAuthGateway(
     var requestedEmail: String? = null
     var verifiedEmail: String? = null
     var verifiedOtp: String? = null
+    var requestCalls = 0
+    var verifyCalls = 0
+    var requestGate: CompletableDeferred<Unit>? = null
+    var verifyGate: CompletableDeferred<Unit>? = null
+    var requestFailure: Exception? = null
+    var signedInAfterVerify: MatcherSession.SignedIn? = null
 
     override suspend fun requestEmailOtp(email: String) {
+        requestCalls += 1
         requestedEmail = email
+        requestGate?.await()
+        requestFailure?.let { throw it }
     }
 
     override suspend fun verifyEmailOtp(email: String, token: String) {
+        verifyCalls += 1
         verifiedEmail = email
         verifiedOtp = token
+        verifyGate?.await()
+        signedInAfterVerify?.let { session.value = it }
     }
 
     override suspend fun signOut() {

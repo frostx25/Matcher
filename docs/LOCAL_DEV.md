@@ -25,7 +25,9 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_<PUBLIC_KEY>
 
 Esse arquivo é ignorado pelo Git. Nunca adicionar senha do banco, chave secreta ou `service_role`; esses valores não pertencem ao APK.
 
-O projeto remoto de desenvolvimento usa um código OTP numérico de seis dígitos. O template de e-mail deve exibir `{{ .Token }}`; ao receber o sexto dígito, o Android valida o código automaticamente com o Supabase Auth, confirma ou cria a conta e não usa deep link. Se o comprimento for alterado no provedor, o contrato e a constante `EMAIL_OTP_LENGTH` do Android devem ser atualizados juntos.
+O projeto remoto de desenvolvimento usa um código OTP numérico de seis dígitos, expiração de 3.600 segundos e intervalo mínimo local de 60 segundos antes de reenviar. O template de e-mail deve exibir `{{ .Token }}`; ao receber o sexto dígito, o Android valida o código automaticamente com o Supabase Auth, confirma ou cria a conta e não usa deep link. Se comprimento, expiração ou limites forem alterados no provedor, o contrato e as constantes correspondentes do Android devem ser atualizados juntos.
+
+Envio, reenvio e validação são `single-flight`: toques rápidos não criam chamadas concorrentes. O cliente limita cada operação de autenticação a 15 segundos. Um timeout de solicitação significa entrega desconhecida, pois o e-mail ainda pode chegar; o app não reenvia automaticamente, abre a entrada do código sem afirmar que o envio foi confirmado e mantém o cooldown por e-mail normalizado. Respostas `429` e `504` recebem mensagens próprias e não são apresentadas como simples falta de conexão.
 
 O onboarding coleta somente o ano de nascimento, a autodeclaração 18+ e o aceite dos Termos/Política. O Android envia `birth_year` à RPC `complete_onboarding`; data, mês e dia de nascimento não são solicitados nem armazenados. Quando o servidor aceita esses dados, conta e perfil ficam ativos e utilizáveis como não verificados.
 
@@ -33,7 +35,7 @@ A experiência hospedada do Didit não faz parte do onboarding obrigatório. Dep
 
 Fotos de perfil seguem um fluxo separado do Didit. Nos fakes e no backend de desenvolvimento, cada nova versão começa privada em `pending`; terceiros recebem placeholder cinza até `approved`, e decisões `adult` ou `abusive` também mantêm a mídia privada. Uma versão nova não substitui a versão aprovada atual antes da própria aprovação. Fixtures configuram esses estados diretamente para testes e não representam nem prometem classificação automática.
 
-No plano Free atual, o Supabase mantém os templates padrão somente para leitura enquanto usa o serviço de e-mail compartilhado. Para entregar o código, habilitar SMTP próprio (ou um Send Email Hook/upgrade), depois alterar o template **Magic link or OTP** para mostrar `{{ .Token }}`. Até essa configuração existir, o provedor continuará enviando o link padrão, embora o app já esteja preparado para validar o código.
+O projeto deve manter **Custom SMTP** habilitado com o Resend e o template **Magic link or OTP** mostrando `{{ .Token }}`. A senha SMTP/API key existe apenas nos painéis dos provedores; nunca é salva no repositório, `local.properties`, APK, log ou documentação. Antes do teste físico, confirmar no Dashboard que o SMTP continua habilitado, o remetente é aceito pelo Resend e o template contém o token numérico.
 
 ## Build e testes locais
 
