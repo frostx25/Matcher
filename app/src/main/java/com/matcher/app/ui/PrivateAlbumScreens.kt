@@ -39,7 +39,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -544,9 +543,9 @@ private fun PrivatePhotoTile(
     ) {
         value = PrivateAlbumImageDecoder.decode(photo.bytes)
     }
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.recycle() }
-    }
+    // Once handed to Image, Compose's renderer can retain this bitmap beyond this
+    // composable's disposal. Recycling it here races the render thread; the backing
+    // private bytes are still wiped by RemoteMatcherViewModel when access ends.
     Box(
         modifier = Modifier
             .fillMaxWidth()

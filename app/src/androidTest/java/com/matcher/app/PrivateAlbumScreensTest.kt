@@ -6,9 +6,11 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.MyPrivateAlbumScreen
@@ -127,6 +129,9 @@ class PrivateAlbumScreensTest {
         composeRule.onNodeWithText("10/10 fotos · acesso individual").assertIsDisplayed()
         composeRule.onNodeWithTag("add-private-album-photo").assertIsNotEnabled()
         composeRule.onNodeWithText("O álbum chegou ao limite de 10 fotos.").assertIsDisplayed()
+        composeRule.onAllNodesWithContentDescription("Foto privada")
+            .onFirst()
+            .assertIsDisplayed()
     }
 
     @Test
