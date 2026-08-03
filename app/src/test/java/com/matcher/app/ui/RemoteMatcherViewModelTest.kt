@@ -31,6 +31,7 @@ import com.matcher.app.domain.chat.StartConversationResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
@@ -850,6 +851,130 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun finalizedPrivateAlbumUploadSurvivesPreviewRefreshFailureWithoutRetrying() = runTest(dispatcher) {
+        val albumId = "00000000-0000-4000-8000-000000000318"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumId, "active", 0)
+            downloadFailureAfterUpload = IllegalStateException("synthetic preview failure")
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+
+        viewModel.uploadPrivateAlbumPhoto(jpeg)
+        advanceUntilIdle()
+
+        assertEquals(listOf(albumId), albums.uploadAttempts)
+        assertEquals(
+            "Foto adicionada. Não foi possível carregar a prévia agora; " +
+                "abra o álbum novamente para tentar.",
+            viewModel.uiState.value.errorMessage,
+        )
+        assertEquals(albumId, viewModel.uiState.value.privateAlbum.myAlbum?.albumId)
+        assertEquals(1, viewModel.uiState.value.privateAlbum.myAlbum?.itemCount)
+        assertEquals(1, viewModel.uiState.value.privateAlbum.myItems.size)
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.isEmpty())
+        assertFalse(viewModel.uiState.value.privateAlbum.loading)
+        assertTrue(jpeg.all { it == 0.toByte() })
+
+        viewModel.closePrivateAlbum()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+
+        assertEquals(1, albums.uploadAttempts.size)
+        assertEquals(1, viewModel.uiState.value.privateAlbum.visibleBytes.size)
+        assertNull(viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun previewRefreshCancellationIsNotConvertedIntoRecoverablePreviewMessage() = runTest(dispatcher) {
+        val albumId = "00000000-0000-4000-8000-000000000319"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumId, "active", 0)
+            downloadFailureAfterUpload = CancellationException("synthetic cancellation")
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+
+        viewModel.uploadPrivateAlbumPhoto(jpeg)
+        advanceUntilIdle()
+
+        assertEquals(listOf(albumId), albums.uploadAttempts)
+        assertNull(viewModel.uiState.value.errorMessage)
+        assertFalse(viewModel.uiState.value.privateAlbum.loading)
+        assertTrue(jpeg.all { it == 0.toByte() })
+    }
+
+    @Test
+    fun postFinalizeAccessFailureClearsPrivateContentAndIsNotReportedAsPreviewFailure() = runTest(dispatcher) {
+        val albumId = "00000000-0000-4000-8000-000000000320"
+        val existingItem = PrivateAlbumItem(
+            itemId = "20000000-0000-4000-8000-000000000320",
+            position = 0,
+        )
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumId, "active", 1)
+            items += existingItem
+            bytesByItemId[existingItem.itemId] = byteArrayOf(
+                0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte(),
+            )
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+        assertEquals(1, viewModel.uiState.value.privateAlbum.visibleBytes.size)
+        albums.getMyPrivateAlbumFailureAfterUpload =
+            IllegalStateException("PRIVATE_ALBUM_NOT_AVAILABLE")
+        val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+
+        viewModel.uploadPrivateAlbumPhoto(jpeg)
+        advanceUntilIdle()
+
+        assertEquals(1, albums.uploadAttempts.size)
+        assertEquals(
+            "Este álbum privado não está mais disponível para você.",
+            viewModel.uiState.value.errorMessage,
+        )
+        assertNull(viewModel.uiState.value.privateAlbum.destination)
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleItems.isEmpty())
+        assertTrue(viewModel.uiState.value.privateAlbum.visibleBytes.isEmpty())
+        assertTrue(jpeg.all { it == 0.toByte() })
+    }
+
+    @Test
+    fun previewFailureKeepsAuthoritativeCountAfterConcurrentDeletion() = runTest(dispatcher) {
+        val albumId = "00000000-0000-4000-8000-000000000321"
+        val first = PrivateAlbumItem("20000000-0000-4000-8000-000000000321", 0)
+        val second = PrivateAlbumItem("20000000-0000-4000-8000-000000000322", 1)
+        val jpegBytes = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum(albumId, "active", 2)
+            items += listOf(first, second)
+            bytesByItemId[first.itemId] = jpegBytes.copyOf()
+            bytesByItemId[second.itemId] = jpegBytes.copyOf()
+        }
+        val viewModel = activeViewModel(albums)
+        advanceUntilIdle()
+        viewModel.openMyPrivateAlbum()
+        advanceUntilIdle()
+        albums.removeFirstItemBeforePostUploadRefresh = true
+        albums.downloadFailureAfterUpload = IllegalStateException("synthetic preview failure")
+
+        viewModel.uploadPrivateAlbumPhoto(jpegBytes.copyOf())
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.uiState.value.privateAlbum.myAlbum?.itemCount)
+        assertEquals(2, viewModel.uiState.value.privateAlbum.myItems.size)
+        assertEquals(1, albums.uploadAttempts.size)
+    }
+
+    @Test
     fun staleUploadFromAlbumAIsNeverRedirectedToReplacementAlbumB() = runTest(dispatcher) {
         val albumA = "00000000-0000-4000-8000-000000000311"
         val albumB = "00000000-0000-4000-8000-000000000312"
@@ -1333,6 +1458,9 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     var deletedAlbumId: String? = null
     var uploadedAlbumId: String? = null
     var uploadFailure: Exception? = null
+    var getMyPrivateAlbumFailureAfterUpload: Exception? = null
+    var downloadFailureAfterUpload: Exception? = null
+    var removeFirstItemBeforePostUploadRefresh = false
     val uploadAttempts = mutableListOf<String>()
     var createAlbumCalls = 0
     var grantedAlbumId: String? = null
@@ -1355,6 +1483,17 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     }
 
     override suspend fun getMyPrivateAlbum(): PrivateAlbum? {
+        if (uploadedAlbumId != null) {
+            if (removeFirstItemBeforePostUploadRefresh) {
+                items.removeFirstOrNull()?.also { removed -> bytesByItemId.remove(removed.itemId)?.fill(0) }
+                album = album?.copy(itemCount = items.size)
+                removeFirstItemBeforePostUploadRefresh = false
+            }
+            getMyPrivateAlbumFailureAfterUpload?.let { failure ->
+                getMyPrivateAlbumFailureAfterUpload = null
+                throw failure
+            }
+        }
         getMyPrivateAlbumGate?.let { gate ->
             if (ignoreGetMyPrivateAlbumCancellation) {
                 withContext(NonCancellable) { gate.await() }
@@ -1403,6 +1542,12 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     }
 
     override suspend fun downloadPrivateAlbumImage(itemId: String): ByteArray {
+        if (uploadedAlbumId != null) {
+            downloadFailureAfterUpload?.let { failure ->
+                downloadFailureAfterUpload = null
+                throw failure
+            }
+        }
         if (holdDownloadNonCancellable) {
             return suspendCoroutine { continuation ->
                 check(heldDownload == null)

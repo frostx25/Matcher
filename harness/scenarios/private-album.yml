@@ -1,4 +1,4 @@
-version: 3
+version: 6
 domain: private-photo-album
 
 scenarios:
@@ -360,3 +360,98 @@ scenarios:
       - direct_object_download_allowed: false
       - signed_url_creation_allowed: false
       - permanent_url_exists: false
+
+  - id: ALBUM-023-finalized-upload-preview-recovery
+    name: Falha de prévia não transforma upload concluído em duplicata
+    given:
+      - owner: user-free
+      - authenticated_session_jwt_algorithm: ES256
+      - private_album_exists: true
+      - selected_photo_is_valid: true
+    when:
+      - reserve_upload_and_finalize_succeed: true
+      - first_private_media_refresh_returns: 401
+      - owner_remains_on_album_screen: true
+    then:
+      - finalized_item_remains_available: true
+      - upload_success_is_not_rolled_back: true
+      - user_message: photo_added_preview_unavailable
+      - automatic_second_upload: false
+      - retry_refresh_uses_existing_item: true
+      - media_request_revalidates_security_definer_rpc_before_privileged_download: true
+
+  - id: ALBUM-024-media-auth-error-classification
+    name: Falha de credencial não se confunde com indisponibilidade do Auth
+    given:
+      - owner: user-free
+      - requested_item_id_is_valid: true
+      - identity_provider_outcomes:
+          invalid_token_or_session: unauthenticated
+          timeout_or_operational_failure: unavailable
+    when:
+      - request_private_media_for_each_outcome: true
+    then:
+      - invalid_token_or_session_http_status: 401
+      - timeout_or_operational_failure_http_status: 503
+      - authorization_rpc_called_for_invalid_token_or_session: false
+      - authorization_rpc_called_for_operational_failure: false
+      - provider_error_details_exposed: false
+
+  - id: ALBUM-025-idempotent-reservation-ttl-reaper
+    name: Resposta perdida não ocupa vaga para sempre nem aceita upload tardio
+    given:
+      - owner: user-free
+      - private_album_exists: true
+      - client_generated_idempotency_key: synthetic-reservation-key-01
+      - reservation_ttl_minutes: 30
+      - first_reservation_commits_but_response_is_lost: true
+    when:
+      - retry_uses_same_album_mime_and_key: true
+      - server_clock_passes_reservation_deadline: true
+      - late_storage_insert_is_attempted: true
+      - object_inserted_before_deadline_is_finalized_after_deadline: true
+      - normal_cleanup_worker_polls_repeatedly: true
+    then:
+      - retry_returns_same_item_and_path_while_live: true
+      - album_slots_consumed_by_same_key: 1
+      - late_storage_insert_allowed: false
+      - late_finalize_item_status: deleting
+      - expired_slot_released: true
+      - cleanup_tombstones_for_reservation: 1
+      - cleanup_uses_service_role_lease_and_backoff: true
+      - authenticated_receives_cleanup_object_path: false
+      - external_paid_cron_required: false
+
+  - id: ALBUM-026-known-reservation-cancellation-cleanup
+    name: Cancelamento preserva cleanup curto depois que a reserva é conhecida
+    given:
+      - owner: user-free
+      - live_reservation_id_is_known: true
+      - upload_or_finalize_in_progress: true
+    when:
+      - coroutine_or_screen_is_cancelled: true
+    then:
+      - cleanup_runs_in_bounded_non_cancellable_context: true
+      - cancellation_is_propagated_after_cleanup_attempt: true
+      - cleanup_failure_does_not_hide_original_cancellation: true
+      - server_ttl_remains_authoritative_fallback: true
+      - automatic_reupload: false
+
+  - id: ALBUM-027-post-finalize-failure-classification
+    name: Falha de acesso ou invariante não vira simples aviso de prévia
+    given:
+      - owner: user-free
+      - upload_finalize_committed: true
+      - failure_outcomes:
+          transient_preview_for_still_authorized_item: recoverable
+          authorization_denied: security_failure
+          item_id_or_position_mismatch: invariant_failure
+          incompatible_media_response: invariant_failure
+    when:
+      - handle_each_post_finalize_outcome: true
+    then:
+      - recoverable_preview_keeps_finalized_item: true
+      - recoverable_preview_triggers_second_upload: false
+      - security_or_invariant_failure_uses_simple_preview_warning: false
+      - security_or_invariant_failure_clears_private_bytes_and_derived_state: true
+      - security_or_invariant_failure_triggers_second_upload: false

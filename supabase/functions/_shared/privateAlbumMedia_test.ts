@@ -1,6 +1,7 @@
 import {
   type AlbumAuthorizationResult,
   type AlbumDownloadResult,
+  authorizePrivateAlbumCaller,
   createPrivateAlbumMediaHandler,
   extractPrivateAlbumBearer,
   parseAllowedOrigins,
@@ -102,6 +103,46 @@ Deno.test("private album bearer parser accepts one strict JWT only", () => {
     null,
     "opaque malformed input is rejected",
   );
+});
+
+Deno.test("server identity verification precedes caller-scoped album RPC", async () => {
+  const calls: string[] = [];
+  const result = await authorizePrivateAlbumCaller(token, itemId, {
+    verifyIdentity: (receivedToken) => {
+      calls.push("verify");
+      assertEquals(receivedToken, token, "identity token");
+      return Promise.resolve("verified");
+    },
+    authorizeItem: (receivedToken, receivedItemId) => {
+      calls.push("authorize");
+      assertEquals(receivedToken, token, "caller token remains scoped");
+      assertEquals(receivedItemId, itemId, "reserved item id");
+      return Promise.resolve({
+        kind: "authorized",
+        objectPath: "owner/album/item.webp",
+        mimeType: "image/webp",
+      });
+    },
+  });
+
+  assert(result.kind === "authorized", "verified caller is authorized");
+  assertEquals(calls.join(","), "verify,authorize", "authorization order");
+});
+
+Deno.test("failed server identity verification never reaches album RPC", async () => {
+  for (const identity of ["unauthenticated", "error"] as const) {
+    let authorizeCalls = 0;
+    const result = await authorizePrivateAlbumCaller(token, itemId, {
+      verifyIdentity: () => Promise.resolve(identity),
+      authorizeItem: () => {
+        authorizeCalls++;
+        return Promise.resolve({ kind: "error" });
+      },
+    });
+
+    assertEquals(result.kind, identity, `result for ${identity}`);
+    assertEquals(authorizeCalls, 0, `RPC calls for ${identity}`);
+  }
 });
 
 Deno.test("origin parser keeps exact HTTPS and loopback origins only", () => {

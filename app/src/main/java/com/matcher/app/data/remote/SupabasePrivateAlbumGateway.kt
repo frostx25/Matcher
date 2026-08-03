@@ -13,6 +13,10 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import java.util.UUID
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -184,16 +188,21 @@ class SupabasePrivateAlbumGateway(
 
         val ownerId = currentUserId()
         val normalizedAlbumId = requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE")
+        val reservationKey = UUID.randomUUID().toString()
         val reservation = client.postgrest.rpc(
             function = "reserve_private_album_item",
-            parameters = buildJsonObject {
-                put("target_album_id", normalizedAlbumId)
-                put("mime_type", PRIVATE_ALBUM_IMAGE_MIME_TYPE)
-            },
+            parameters = buildPrivateAlbumReservationParameters(
+                albumId = normalizedAlbumId,
+                mimeType = PRIVATE_ALBUM_IMAGE_MIME_TYPE,
+                idempotencyKey = reservationKey,
+            ),
         ).decodeSingle<ReservedPrivateAlbumItem>()
-
         val bucket = client.storage.from(PRIVATE_ALBUM_BUCKET)
         try {
+            require(
+                reservation.reservationStatus == "uploading" &&
+                    reservation.uploadExpiresAt.isNotBlank(),
+            ) { "INVALID_PRIVATE_ALBUM_RESPONSE" }
             validateReservedPath(
                 objectPath = reservation.objectPath,
                 ownerId = ownerId,
@@ -215,7 +224,11 @@ class SupabasePrivateAlbumGateway(
                 function = "finalize_private_album_item",
                 parameters = buildJsonObject { put("album_item_id", reservation.itemId) },
             ).decodeSingle<FinalizedPrivateAlbumItem>()
-            require(finalized.itemId == reservation.itemId && finalized.position == reservation.position) {
+            require(
+                finalized.itemId == reservation.itemId &&
+                    finalized.position == reservation.position &&
+                    finalized.itemStatus == "available",
+            ) {
                 "INVALID_PRIVATE_ALBUM_RESPONSE"
             }
             return PrivateAlbumItem(
@@ -224,17 +237,19 @@ class SupabasePrivateAlbumGateway(
                 itemStatus = finalized.itemStatus,
             )
         } catch (error: Exception) {
-            runCatching {
-                client.postgrest.rpc(
-                    function = "mark_private_album_item_for_deletion",
-                    parameters = buildJsonObject { put("album_item_id", reservation.itemId) },
-                ).decodeAs<String>()
-            }
-            runCatching {
-                invokePrivateAlbumDelete(
-                    buildJsonObject { put("item_id", reservation.itemId) },
-                )
-            }
+            cleanupFailedPrivateAlbumUpload(
+                markForDeletion = {
+                    client.postgrest.rpc(
+                        function = "mark_private_album_item_for_deletion",
+                        parameters = buildJsonObject { put("album_item_id", reservation.itemId) },
+                    )
+                },
+                deleteItem = {
+                    invokePrivateAlbumDelete(
+                        buildJsonObject { put("item_id", reservation.itemId) },
+                    )
+                },
+            )
             throw error
         }
     }
@@ -383,6 +398,8 @@ private data class ReservedPrivateAlbumItem(
     @SerialName("item_id") val itemId: String,
     @SerialName("object_path") val objectPath: String,
     val position: Int,
+    @SerialName("reservation_status") val reservationStatus: String,
+    @SerialName("upload_expires_at") val uploadExpiresAt: String,
 )
 
 @Serializable
@@ -407,6 +424,39 @@ private data class PrivateAlbumDeleteResponse(
 internal class PrivateAlbumStorageAccessException(
     cause: Throwable,
 ) : Exception("PRIVATE_ALBUM_STORAGE_ACCESS_DENIED", cause)
+
+internal suspend fun cleanupFailedPrivateAlbumUpload(
+    timeoutMillis: Long = 5_000,
+    markForDeletion: suspend () -> Unit,
+    deleteItem: suspend () -> Unit,
+) {
+    require(timeoutMillis > 0)
+    withContext(NonCancellable) {
+        runPrivateAlbumCleanupStep(timeoutMillis, markForDeletion)
+        runPrivateAlbumCleanupStep(timeoutMillis, deleteItem)
+    }
+}
+
+internal fun buildPrivateAlbumReservationParameters(
+    albumId: String,
+    mimeType: String,
+    idempotencyKey: String,
+): JsonObject = buildJsonObject {
+    put("target_album_id", albumId)
+    put("mime_type", mimeType)
+    put("idempotency_key", idempotencyKey)
+}
+
+private suspend fun runPrivateAlbumCleanupStep(
+    timeoutMillis: Long,
+    action: suspend () -> Unit,
+) {
+    try {
+        withTimeout(timeoutMillis) { action() }
+    } catch (_: TimeoutCancellationException) {
+    } catch (_: Exception) {
+    }
+}
 
 internal fun Throwable.isPrivateAlbumStorageAccessDenied(): Boolean = selfAndCauses().any { error ->
     val statusCode = when (error) {

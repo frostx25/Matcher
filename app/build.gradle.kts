@@ -92,7 +92,7 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:postgrest-kt")
     implementation("io.github.jan-tennert.supabase:realtime-kt")
     implementation("io.github.jan-tennert.supabase:storage-kt")
-    implementation("io.ktor:ktor-client-android:3.4.2")
+    implementation("io.ktor:ktor-client-okhttp:3.4.2")
 
     implementation("io.coil-kt.coil3:coil-compose:3.5.0")
     implementation("io.coil-kt.coil3:coil-network-ktor3:3.5.0")

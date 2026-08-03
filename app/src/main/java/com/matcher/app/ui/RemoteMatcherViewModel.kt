@@ -706,17 +706,33 @@ class RemoteMatcherViewModel(
             jpegBytes.fill(0)
             return
         }
-        val displayedAlbumId = state.privateAlbum.myAlbum?.albumId
+        val displayedAlbum = state.privateAlbum.myAlbum
         val scheduled = runPrivateAlbumOperation { token ->
             try {
-                val targetAlbumId = displayedAlbumId ?: privateAlbumGateway.createPrivateAlbum(
+                val targetAlbum = displayedAlbum ?: privateAlbumGateway.createPrivateAlbum(
                     contentPolicyVersion = PrivateAlbumContentPolicyVersion,
                     contentPolicyAccepted = true,
-                ).albumId
+                )
                 ensurePrivateAlbumWorkIsCurrent(token)
-                privateAlbumGateway.uploadPrivateAlbumImage(targetAlbumId, jpegBytes)
+                val finalizedItem = privateAlbumGateway.uploadPrivateAlbumImage(
+                    targetAlbum.albumId,
+                    jpegBytes,
+                )
                 ensurePrivateAlbumWorkIsCurrent(token)
-                loadMyPrivateAlbum(includeBytes = true, token = token)
+                preserveFinalizedPrivateAlbumItem(token, targetAlbum, finalizedItem)
+                try {
+                    loadMyPrivateAlbum(includeBytes = true, token = token)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    if (error.matcherCode() in PrivateAlbumStateInvalidatingErrors) throw error
+                    if (isPrivateAlbumWorkCurrent(token)) {
+                        setError(
+                            "Foto adicionada. Não foi possível carregar a prévia agora; " +
+                                "abra o álbum novamente para tentar.",
+                        )
+                    }
+                }
             } finally {
                 jpegBytes.fill(0)
             }
@@ -1072,6 +1088,13 @@ class RemoteMatcherViewModel(
         ensurePrivateAlbumWorkIsCurrent(token)
         val albumState = mutableState.value.privateAlbum
         val bytes = if (includeBytes) {
+            replaceVisiblePrivateAlbumBytes(
+                token = token,
+                destination = PrivateAlbumDestination.Mine,
+                items = albumState.myItems,
+                bytes = emptyMap(),
+            )
+            ensurePrivateAlbumWorkIsCurrent(token)
             downloadPrivateAlbumItems(albumState.myItems, token)
         } else {
             emptyMap()
@@ -1171,7 +1194,7 @@ class RemoteMatcherViewModel(
                 throw error
             } catch (error: Exception) {
                 if (isPrivateAlbumWorkCurrent(token)) {
-                    if (error.matcherCode() in PrivateAlbumAccessErrors) clearVisiblePrivateAlbum()
+                    if (error.matcherCode() in PrivateAlbumStateInvalidatingErrors) clearVisiblePrivateAlbum()
                     setError(error.toPrivateAlbumMessage())
                 }
             } finally {
@@ -1253,6 +1276,38 @@ class RemoteMatcherViewModel(
         transform: (RemoteMatcherUiState) -> RemoteMatcherUiState,
     ) {
         if (isPrivateAlbumWorkCurrent(token)) mutableState.update(transform)
+    }
+
+    private fun preserveFinalizedPrivateAlbumItem(
+        token: PrivateAlbumWorkToken,
+        targetAlbum: PrivateAlbum,
+        finalizedItem: PrivateAlbumItem,
+    ) {
+        updatePrivateAlbumState(token) { current ->
+            val albumState = current.privateAlbum
+            val currentAlbum = albumState.myAlbum
+            if (albumState.destination != PrivateAlbumDestination.Mine ||
+                currentAlbum?.albumId?.let { it != targetAlbum.albumId } == true
+            ) {
+                return@updatePrivateAlbumState current
+            }
+            val alreadyKnown = albumState.myItems.any { it.itemId == finalizedItem.itemId }
+            val mergedItems = (albumState.myItems.filterNot { it.itemId == finalizedItem.itemId } +
+                finalizedItem).sortedBy { it.position }
+            val albumSnapshot = currentAlbum ?: targetAlbum
+            val preservedAlbum = albumSnapshot.copy(
+                itemCount = maxOf(
+                    albumSnapshot.itemCount + if (alreadyKnown) 0 else 1,
+                    mergedItems.size,
+                ),
+            )
+            current.copy(
+                privateAlbum = albumState.copy(
+                    myAlbum = preservedAlbum,
+                    myItems = mergedItems,
+                ),
+            )
+        }
     }
 
     private fun replaceVisiblePrivateAlbumBytes(
@@ -1536,6 +1591,16 @@ private val PrivateAlbumAccessErrors = setOf(
     "PRIVATE_ALBUM_OBJECT_NOT_FOUND",
     "ALBUM_BLOCKED",
     "ALBUM_ACCESS_BLOCKED",
+)
+
+private val PrivateAlbumStateInvalidatingErrors = PrivateAlbumAccessErrors + setOf(
+    "AUTH_REQUIRED",
+    "ACCOUNT_NOT_ACTIVE",
+    "ACCOUNT_SUSPENDED",
+    "ACCOUNT_DELETED",
+    "ACCOUNT_UNAVAILABLE",
+    "PRIVATE_ALBUM_CHANGED",
+    "INVALID_PRIVATE_ALBUM_RESPONSE",
 )
 
 private fun Throwable.toPrivateAlbumMessage(): String = when (matcherCode()) {
