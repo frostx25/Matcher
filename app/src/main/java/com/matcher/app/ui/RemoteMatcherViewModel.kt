@@ -763,6 +763,23 @@ class RemoteMatcherViewModel(
         }
     }
 
+    fun revokePrivateAlbumGrants(recipientIds: Set<String>) {
+        if (!requireActiveAccount() || recipientIds.isEmpty()) return
+        val expectedAlbumId = mutableState.value.privateAlbum.myAlbum?.albumId ?: return
+        runPrivateAlbumOperation { token ->
+            try {
+                recipientIds.sorted().forEach { recipientId ->
+                    privateAlbumGateway.revokePrivateAlbumAccess(expectedAlbumId, recipientId)
+                    ensurePrivateAlbumWorkIsCurrent(token)
+                }
+            } finally {
+                if (isPrivateAlbumWorkCurrent(token)) {
+                    loadPrivateAlbumSummaries(token)
+                }
+            }
+        }
+    }
+
     fun deleteMyPrivateAlbum() {
         val albumState = mutableState.value.privateAlbum
         if (albumState.destination != PrivateAlbumDestination.Mine) return

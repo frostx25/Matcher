@@ -237,6 +237,8 @@ fun MatcherApp(
                 0 -> DiscoveryScreen(
                     remainingChats = uiState.chat.remainingQuota,
                     blockedUserIds = uiState.chat.blockedUserIds,
+                    viewerInitials = savedProfile.displayName.trim().take(2).uppercase(),
+                    onOpenAccount = { selectedTab = 2 },
                     onOpenProfile = { selectedProfileId = it },
                     modifier = Modifier.padding(padding),
                 )
@@ -277,46 +279,31 @@ fun MatcherApp(
 private fun DiscoveryScreen(
     remainingChats: Int,
     blockedUserIds: Set<String>,
+    viewerInitials: String,
+    onOpenAccount: () -> Unit,
     onOpenProfile: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val visibleProfiles = demoProfiles.filterNot { it.id in blockedUserIds }
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+    Box(
         modifier = modifier
             .fillMaxSize()
             .testTag("discovery-grid"),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 16.dp, bottom = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) { Header(remainingChats = remainingChats) }
-        item(span = { GridItemSpan(maxLineSpan) }) { Filters() }
-        items(visibleProfiles, key = { it.id }) { profile ->
-            ProfileCard(profile = profile, onOpenProfile = { onOpenProfile(profile.id) })
-        }
-    }
-}
-
-@Composable
-private fun Header(remainingChats: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column {
-            Text(
-                text = "Matcher",
-                color = MaterialTheme.colorScheme.onBackground,
-                fontSize = 31.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = (-1).sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text("Conexões perto de você", color = TextSecondary, fontSize = 14.sp)
-        }
-        QuotaPill(remainingChats = remainingChats)
+        RemoteDiscoveryScreen(
+            profiles = visibleProfiles,
+            viewerAvatarUrl = null,
+            viewerInitials = viewerInitials,
+            remainingChats = remainingChats,
+            loading = false,
+            hasMore = false,
+            lookingForGenderIds = setOf("everyone"),
+            onLookingForChange = {},
+            onLoadMore = {},
+            onOpenAccount = onOpenAccount,
+            onOpen = onOpenProfile,
+            profileTagPrefix = "profile-",
+        )
     }
 }
 
@@ -341,78 +328,6 @@ internal fun QuotaPill(remainingChats: Int) {
             maxLines = 1,
             softWrap = false,
         )
-    }
-}
-
-@Composable
-private fun Filters() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AssistChip(
-            onClick = {},
-            label = { Text("Todos") },
-            leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(16.dp)) },
-            colors = AssistChipDefaults.assistChipColors(
-                containerColor = Pink,
-                labelColor = Black,
-                leadingIconContentColor = Black,
-            ),
-        )
-        AssistChip(onClick = {}, label = { Text("Online") }, leadingIcon = { Icon(Icons.Outlined.LocationOn, null, Modifier.size(16.dp)) })
-        AssistChip(onClick = {}, label = { Text("Verificados") }, leadingIcon = { Icon(Icons.Outlined.Verified, null, Modifier.size(16.dp)) })
-        AssistChip(onClick = {}, label = { Text("Filtros") }, leadingIcon = { Icon(Icons.Outlined.Tune, null, Modifier.size(16.dp)) })
-    }
-}
-
-@Composable
-private fun ProfileCard(profile: DemoProfile, onOpenProfile: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(224.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(profile.colors))
-            .clickable(onClick = onOpenProfile)
-            .testTag("profile-${profile.id}"),
-    ) {
-        if (profile.avatarUrl != null) {
-            AsyncImage(
-                model = profile.avatarUrl,
-                contentDescription = "Foto de ${profile.name}",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Text(
-                text = profile.initials,
-                modifier = Modifier.align(Alignment.Center),
-                color = Color.White.copy(alpha = 0.86f),
-                fontSize = 38.sp,
-                fontWeight = FontWeight.Black,
-            )
-        }
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.86f))))
-                .padding(start = 12.dp, end = 12.dp, top = 34.dp, bottom = 12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${profile.name}, ${profile.age}", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                if (profile.verified) {
-                    Spacer(Modifier.width(5.dp))
-                    Icon(Icons.Outlined.Verified, "Verificado", tint = Pink, modifier = Modifier.size(16.dp))
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(profile.distance, color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp)
-            Text(profile.intent, color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        }
     }
 }
 

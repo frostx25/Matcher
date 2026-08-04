@@ -5,11 +5,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,14 +23,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -47,12 +56,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -454,6 +467,7 @@ private fun RemoteHome(
                 onPhotoError = viewModel::reportProfilePhotoPreparationFailure,
                 onDeletePhoto = viewModel::deletePrivateAlbumPhoto,
                 onToggleGrant = viewModel::togglePrivateAlbumGrant,
+                onRevokeGrants = viewModel::revokePrivateAlbumGrants,
                 onDeleteAlbum = viewModel::deleteMyPrivateAlbum,
             )
         }
@@ -532,6 +546,8 @@ private fun RemoteHome(
             when (selectedTab) {
                 0 -> RemoteDiscoveryScreen(
                     profiles = remoteProfiles,
+                    viewerAvatarUrl = profile.avatarUrl,
+                    viewerInitials = profile.displayName.trim().take(2).uppercase(),
                     remainingChats = state.chat.remainingQuota,
                     loading = state.loading,
                     hasMore = state.discovery.nextCursor != null,
@@ -548,6 +564,7 @@ private fun RemoteHome(
                         }
                     },
                     onLoadMore = viewModel::loadMoreDiscovery,
+                    onOpenAccount = { selectedTab = 2 },
                     onOpen = { selectedProfileId = it },
                     modifier = Modifier.padding(padding),
                 )
@@ -570,6 +587,8 @@ private fun RemoteHome(
                     onPhotoError = viewModel::reportProfilePhotoPreparationFailure,
                     onUpdateGenderSettings = viewModel::updateGenderSettings,
                     onOpenPrivateAlbum = viewModel::openMyPrivateAlbum,
+                    privateAlbumItemCount = state.privateAlbum.myAlbum?.itemCount ?: 0,
+                    privateAlbumGrantCount = state.privateAlbum.myGrants.size,
                     sharedPrivateAlbums = state.privateAlbum.sharedWithMe.map { shared ->
                         SharedPrivateAlbumUi(
                             ownerId = shared.ownerId,
@@ -606,68 +625,157 @@ private fun RemoteHome(
 }
 
 @Composable
-private fun RemoteDiscoveryScreen(
+internal fun RemoteDiscoveryScreen(
     profiles: List<DemoProfile>,
+    viewerAvatarUrl: String?,
+    viewerInitials: String,
     remainingChats: Int,
     loading: Boolean,
     hasMore: Boolean,
     lookingForGenderIds: Set<String>,
     onLookingForChange: (Set<String>) -> Unit,
     onLoadMore: () -> Unit,
+    onOpenAccount: () -> Unit,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
+    profileTagPrefix: String = "remote-profile-",
 ) {
+    val density = LocalDensity.current
+    val windowWidthDp = (LocalWindowInfo.current.containerSize.width / density.density).toInt()
+    val discoveryColumns = discoveryColumnCountForWidth(windowWidthDp)
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
     var draftLookingFor by remember(lookingForGenderIds, filtersOpen) {
         mutableStateOf(lookingForGenderIds)
     }
-    LazyColumn(
-        modifier = modifier.fillMaxSize().background(Black).testTag("remote-discovery"),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(discoveryColumns),
+        modifier = modifier
+            .fillMaxSize()
+            .background(Black)
+            .testTag("remote-discovery"),
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 12.dp, bottom = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                Column {
-                    Text("Pessoas na região", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Black)
-                    Text("Localização aproximada", color = TextSecondary, fontSize = 13.sp)
-                }
-                QuotaPill(remainingChats)
-            }
-        }
-        item {
-            Column(
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Surface)
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                    .testTag("remote-discovery-header"),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .border(2.dp, Pink, CircleShape)
+                        .padding(3.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onOpenAccount)
+                        .testTag("open-account-from-discovery"),
+                ) {
+                    RemoteProfileAvatar(
+                        imageUrl = viewerAvatarUrl,
+                        initials = viewerInitials,
+                        size = 36.dp,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Perto",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-0.6).sp,
+                    )
+                    Box(
+                        Modifier
+                            .padding(top = 2.dp)
+                            .size(width = 24.dp, height = 3.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Pink),
+                    )
+                    Text("Localização aproximada", color = TextSecondary, fontSize = 11.sp)
+                }
+                QuotaPill(remainingChats)
+                IconButton(
+                    onClick = { filtersOpen = !filtersOpen },
+                    enabled = !loading,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(if (filtersOpen) Pink else Surface)
+                        .testTag("toggle-gender-filter"),
+                ) {
+                    Icon(
+                        Icons.Outlined.Tune,
+                        contentDescription = if (filtersOpen) "Fechar filtros" else "Abrir filtros",
+                        tint = if (filtersOpen) Black else MaterialTheme.colorScheme.onBackground,
+                    )
+                }
+            }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Surface)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .testTag("discovery-filter-summary"),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Pink),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Mostrar", color = TextSecondary, fontSize = 10.sp)
+                    Text(
+                        if ("everyone" in lookingForGenderIds) {
+                            "Todas as pessoas"
+                        } else {
+                            genderLabels(lookingForGenderIds)
+                        },
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    "Filtro privado",
+                    color = SoftPink,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        if (filtersOpen) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SurfaceRaised)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Column {
                         Text("Quem aparece aqui", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                         Text(
-                            if ("everyone" in lookingForGenderIds) {
-                                "Todas as pessoas"
-                            } else {
-                                genderLabels(lookingForGenderIds)
-                            },
+                            "Esta escolha é privada e aplicada pelo servidor.",
                             color = TextSecondary,
                             fontSize = 12.sp,
                         )
                     }
-                    OutlinedButton(
-                        onClick = { filtersOpen = !filtersOpen },
-                        enabled = !loading,
-                        modifier = Modifier.testTag("toggle-gender-filter"),
-                    ) { Text(if (filtersOpen) "Fechar" else "Alterar") }
-                }
-                if (filtersOpen) {
                     LookingForGenderSelector(
                         selected = draftLookingFor,
                         enabled = !loading,
@@ -686,40 +794,139 @@ private fun RemoteDiscoveryScreen(
                 }
             }
         }
-        if (loading) item { CircularProgressIndicator(color = Pink) }
-        if (profiles.isEmpty() && !loading) item { Text("Ainda não há perfis disponíveis nesta região.", color = TextSecondary) }
-        items(profiles, key = { it.id }) { item ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Surface)
-                    .clickable { onOpen(item.id) }
-                    .padding(18.dp)
-                    .testTag("remote-profile-${item.id}"),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RemoteProfileAvatar(
-                    imageUrl = item.avatarUrl,
-                    initials = item.initials,
-                    size = 68.dp,
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("${item.name}, ${item.age}", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(item.intent, color = Pink, fontWeight = FontWeight.SemiBold)
-                    Text(item.bio, color = TextSecondary, maxLines = 2)
+        if (loading) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(18.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator(color = Pink) }
+            }
+        }
+        if (profiles.isEmpty() && !loading) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("Ninguém por aqui ainda", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Altere os filtros ou volte mais tarde.",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                    )
                 }
             }
         }
+        gridItems(profiles, key = { it.id }) { item ->
+            RemoteDiscoveryProfileCard(
+                profile = item,
+                onOpen = { onOpen(item.id) },
+                testTagPrefix = profileTagPrefix,
+            )
+        }
         if (hasMore) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 OutlinedButton(
                     onClick = onLoadMore,
                     enabled = !loading,
-                    modifier = Modifier.fillMaxWidth().testTag("load-more-discovery"),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 12.dp)
+                        .testTag("load-more-discovery"),
                 ) { Text("Carregar mais perfis") }
             }
+        }
+    }
+}
+
+internal fun discoveryColumnCountForWidth(widthDp: Int): Int = when {
+    widthDp >= 720 -> 6
+    widthDp >= 600 -> 5
+    widthDp >= 480 -> 4
+    else -> 3
+}
+
+@Composable
+private fun RemoteDiscoveryProfileCard(
+    profile: DemoProfile,
+    onOpen: () -> Unit,
+    testTagPrefix: String,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.74f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Brush.linearGradient(profile.colors))
+            .clickable(onClick = onOpen)
+            .testTag("$testTagPrefix${profile.id}"),
+    ) {
+        if (profile.avatarUrl != null) {
+            AsyncImage(
+                model = profile.avatarUrl,
+                contentDescription = "Foto de ${profile.name}",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                profile.initials,
+                modifier = Modifier.align(Alignment.Center),
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.92f)),
+                    ),
+                )
+                .padding(start = 7.dp, end = 7.dp, top = 28.dp, bottom = 7.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${profile.name}, ${profile.age}",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (profile.verified) {
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "✓",
+                        color = Pink,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+            Text(
+                profile.distance,
+                color = Color.White.copy(alpha = 0.72f),
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                profile.intent,
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -736,6 +943,8 @@ private fun RemoteProfileScreen(
     onPhotoError: () -> Unit,
     onUpdateGenderSettings: (Set<String>, String, Boolean, Set<String>) -> Unit,
     onOpenPrivateAlbum: () -> Unit,
+    privateAlbumItemCount: Int,
+    privateAlbumGrantCount: Int,
     sharedPrivateAlbums: List<SharedPrivateAlbumUi>,
     onOpenSharedPrivateAlbum: (SharedPrivateAlbumUi) -> Unit,
     onSignOut: () -> Unit,
@@ -903,16 +1112,20 @@ private fun RemoteProfileScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Álbum privado", color = SoftPink, fontWeight = FontWeight.Bold)
+            Text("Meus álbuns", color = SoftPink, fontWeight = FontWeight.Bold)
             Text(
-                "Adicione até 10 fotos e libere o álbum somente para as pessoas que escolher.",
+                if (privateAlbumItemCount == 0) {
+                    "Crie seu álbum privado e escolha individualmente quem poderá abrir."
+                } else {
+                    "$privateAlbumItemCount/10 fotos · $privateAlbumGrantCount ${if (privateAlbumGrantCount == 1) "pessoa com acesso" else "pessoas com acesso"}"
+                },
                 color = TextSecondary,
                 fontSize = 13.sp,
             )
             OutlinedButton(
                 onClick = onOpenPrivateAlbum,
                 modifier = Modifier.fillMaxWidth().testTag("open-my-private-album"),
-            ) { Text("Gerenciar álbum privado") }
+            ) { Text(if (privateAlbumItemCount == 0) "Criar álbum privado" else "Abrir meus álbuns") }
         }
 
         SharedPrivateAlbumsSection(

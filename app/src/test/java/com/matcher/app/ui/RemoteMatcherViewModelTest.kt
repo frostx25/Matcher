@@ -730,6 +730,48 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun bulkRevokeRemovesOnlySelectedRecipientsAndReloadsAuthoritativeList() = runTest(dispatcher) {
+        val firstId = "00000000-0000-4000-8000-000000000286"
+        val secondId = "00000000-0000-4000-8000-000000000287"
+        val untouchedId = "00000000-0000-4000-8000-000000000288"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum("00000000-0000-4000-8000-000000000289", "active", 0)
+            grants += PrivateAlbumGrant(firstId, "Contato A", "2026-07-31T12:00:00Z")
+            grants += PrivateAlbumGrant(secondId, "Contato B", "2026-07-31T12:00:00Z")
+            grants += PrivateAlbumGrant(untouchedId, "Contato C", "2026-07-31T12:00:00Z")
+        }
+        val viewModel = activeViewModel(albums = albums)
+        advanceUntilIdle()
+
+        viewModel.revokePrivateAlbumGrants(setOf(secondId, firstId))
+        advanceUntilIdle()
+
+        assertEquals(listOf(firstId, secondId), albums.revokedRecipientIds)
+        assertEquals(listOf(untouchedId), viewModel.uiState.value.privateAlbum.myGrants.map { it.recipientId })
+    }
+
+    @Test
+    fun bulkRevokeReloadsListAfterIntermediateFailure() = runTest(dispatcher) {
+        val firstId = "00000000-0000-4000-8000-000000000291"
+        val failingId = "00000000-0000-4000-8000-000000000292"
+        val albums = FakePrivateAlbumGateway().apply {
+            album = PrivateAlbum("00000000-0000-4000-8000-000000000293", "active", 0)
+            grants += PrivateAlbumGrant(firstId, "Contato A", "2026-07-31T12:00:00Z")
+            grants += PrivateAlbumGrant(failingId, "Contato B", "2026-07-31T12:00:00Z")
+            revokeFailureRecipientId = failingId
+        }
+        val viewModel = activeViewModel(albums = albums)
+        advanceUntilIdle()
+
+        viewModel.revokePrivateAlbumGrants(setOf(failingId, firstId))
+        advanceUntilIdle()
+
+        assertEquals(listOf(firstId, failingId), albums.revokedRecipientIds)
+        assertEquals(listOf(failingId), viewModel.uiState.value.privateAlbum.myGrants.map { it.recipientId })
+        assertNotNull(viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
     fun grantStartedForAlbumACannotRetargetReplacementAlbumBAfterSessionChange() = runTest(dispatcher) {
         val albumA = PrivateAlbum("00000000-0000-4000-8000-000000000283", "active", 1)
         val albumB = PrivateAlbum("00000000-0000-4000-8000-000000000284", "active", 1)
@@ -1465,6 +1507,8 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     var createAlbumCalls = 0
     var grantedAlbumId: String? = null
     var revokedAlbumId: String? = null
+    val revokedRecipientIds = mutableListOf<String>()
+    var revokeFailureRecipientId: String? = null
     var grantGate: CompletableDeferred<Unit>? = null
     var ignoreGrantCancellation = false
     var holdDownloadNonCancellable = false
@@ -1583,6 +1627,8 @@ private class FakePrivateAlbumGateway : PrivateAlbumGateway {
     override suspend fun revokePrivateAlbumAccess(albumId: String, recipientId: String): Boolean {
         check(this.album?.albumId == albumId)
         revokedAlbumId = albumId
+        revokedRecipientIds += recipientId
+        if (recipientId == revokeFailureRecipientId) error("synthetic revoke failure")
         return grants.removeAll { it.recipientId == recipientId }
     }
 

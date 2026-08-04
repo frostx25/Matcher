@@ -2,23 +2,29 @@ package com.matcher.app.data.remote
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.exceptions.HttpRequestException
 import io.github.jan.supabase.exceptions.RestException
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
+import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -189,68 +195,84 @@ class SupabasePrivateAlbumGateway(
         val ownerId = currentUserId()
         val normalizedAlbumId = requireUuid(albumId, "INVALID_PRIVATE_ALBUM_RESPONSE")
         val reservationKey = UUID.randomUUID().toString()
-        val reservation = client.postgrest.rpc(
-            function = "reserve_private_album_item",
-            parameters = buildPrivateAlbumReservationParameters(
-                albumId = normalizedAlbumId,
-                mimeType = PRIVATE_ALBUM_IMAGE_MIME_TYPE,
-                idempotencyKey = reservationKey,
-            ),
-        ).decodeSingle<ReservedPrivateAlbumItem>()
-        val bucket = client.storage.from(PRIVATE_ALBUM_BUCKET)
-        try {
-            require(
-                reservation.reservationStatus == "uploading" &&
-                    reservation.uploadExpiresAt.isNotBlank(),
-            ) { "INVALID_PRIVATE_ALBUM_RESPONSE" }
-            validateReservedPath(
-                objectPath = reservation.objectPath,
-                ownerId = ownerId,
-                albumId = normalizedAlbumId,
-                itemId = reservation.itemId,
+        val reservation = retryPrivateAlbumReservation(reservationKey) { stableReservationKey ->
+            client.postgrest.rpc(
+                function = "reserve_private_album_item",
+                parameters = buildPrivateAlbumReservationParameters(
+                    albumId = normalizedAlbumId,
+                    mimeType = PRIVATE_ALBUM_IMAGE_MIME_TYPE,
+                    idempotencyKey = stableReservationKey,
+                ),
+            ).decodeSingle<ReservedPrivateAlbumItem>()
+        }
+        return completeOrUploadPrivateAlbumReservation(reservation) { activeReservation ->
+            val reservationItemId = requireUuid(
+                activeReservation.itemId,
+                "INVALID_PRIVATE_ALBUM_RESPONSE",
             )
-            try {
-                bucket.upload(reservation.objectPath, jpegBytes) {
-                    upsert = false
-                    contentType = ContentType.Image.JPEG
-                }
-            } catch (error: Exception) {
-                if (error.isPrivateAlbumStorageAccessDenied()) {
-                    throw PrivateAlbumStorageAccessException(error)
-                }
-                throw error
-            }
-            val finalized = client.postgrest.rpc(
-                function = "finalize_private_album_item",
-                parameters = buildJsonObject { put("album_item_id", reservation.itemId) },
-            ).decodeSingle<FinalizedPrivateAlbumItem>()
-            require(
-                finalized.itemId == reservation.itemId &&
-                    finalized.position == reservation.position &&
-                    finalized.itemStatus == "available",
-            ) {
+            val reservationPosition = requireNotNull(activeReservation.position) {
                 "INVALID_PRIVATE_ALBUM_RESPONSE"
             }
-            return PrivateAlbumItem(
-                itemId = finalized.itemId,
-                position = finalized.position,
-                itemStatus = finalized.itemStatus,
-            )
-        } catch (error: Exception) {
-            cleanupFailedPrivateAlbumUpload(
-                markForDeletion = {
+            val bucket = client.storage.from(PRIVATE_ALBUM_BUCKET)
+            try {
+                require(
+                    activeReservation.reservationStatus == "uploading" &&
+                        !activeReservation.uploadExpiresAt.isNullOrBlank(),
+                ) { "INVALID_PRIVATE_ALBUM_RESPONSE" }
+                val objectPath = requireNotNull(activeReservation.objectPath) {
+                    "INVALID_PRIVATE_ALBUM_RESPONSE"
+                }
+                validateReservedPath(
+                    objectPath = objectPath,
+                    ownerId = ownerId,
+                    albumId = normalizedAlbumId,
+                    itemId = reservationItemId,
+                )
+                try {
+                    bucket.upload(objectPath, jpegBytes) {
+                        upsert = false
+                        contentType = ContentType.Image.JPEG
+                    }
+                } catch (error: Exception) {
+                    if (error.isPrivateAlbumStorageAccessDenied()) {
+                        throw PrivateAlbumStorageAccessException(error)
+                    }
+                    throw error
+                }
+                val finalized = retryPrivateAlbumFinalization(reservationItemId) { stableItemId ->
                     client.postgrest.rpc(
-                        function = "mark_private_album_item_for_deletion",
-                        parameters = buildJsonObject { put("album_item_id", reservation.itemId) },
-                    )
-                },
-                deleteItem = {
-                    invokePrivateAlbumDelete(
-                        buildJsonObject { put("item_id", reservation.itemId) },
-                    )
-                },
-            )
-            throw error
+                        function = "finalize_private_album_item",
+                        parameters = buildJsonObject { put("album_item_id", stableItemId) },
+                    ).decodeSingle<FinalizedPrivateAlbumItem>()
+                }
+                require(
+                    finalized.itemId == reservationItemId &&
+                        finalized.position == reservationPosition &&
+                        finalized.itemStatus == "available",
+                ) {
+                    "INVALID_PRIVATE_ALBUM_RESPONSE"
+                }
+                PrivateAlbumItem(
+                    itemId = finalized.itemId,
+                    position = finalized.position,
+                    itemStatus = finalized.itemStatus,
+                )
+            } catch (error: Exception) {
+                cleanupFailedPrivateAlbumUpload(
+                    markForDeletion = {
+                        client.postgrest.rpc(
+                            function = "mark_private_album_item_for_deletion",
+                            parameters = buildJsonObject { put("album_item_id", reservationItemId) },
+                        )
+                    },
+                    deleteItem = {
+                        invokePrivateAlbumDelete(
+                            buildJsonObject { put("item_id", reservationItemId) },
+                        )
+                    },
+                )
+                throw error
+            }
         }
     }
 
@@ -394,12 +416,12 @@ class SupabasePrivateAlbumGateway(
 }
 
 @Serializable
-private data class ReservedPrivateAlbumItem(
+internal data class ReservedPrivateAlbumItem(
     @SerialName("item_id") val itemId: String,
-    @SerialName("object_path") val objectPath: String,
-    val position: Int,
+    @SerialName("object_path") val objectPath: String? = null,
+    val position: Int? = null,
     @SerialName("reservation_status") val reservationStatus: String,
-    @SerialName("upload_expires_at") val uploadExpiresAt: String,
+    @SerialName("upload_expires_at") val uploadExpiresAt: String? = null,
 )
 
 @Serializable
@@ -447,6 +469,66 @@ internal fun buildPrivateAlbumReservationParameters(
     put("idempotency_key", idempotencyKey)
 }
 
+internal suspend fun <T> retryPrivateAlbumReservation(
+    idempotencyKey: String,
+    maxAttempts: Int = 2,
+    reserve: suspend (idempotencyKey: String) -> T,
+): T = retryPrivateAlbumIdempotentRequest(
+    stableId = idempotencyKey,
+    invalidIdError = "INVALID_PRIVATE_ALBUM_RESERVATION_KEY",
+    maxAttempts = maxAttempts,
+    request = reserve,
+)
+
+internal suspend fun <T> retryPrivateAlbumFinalization(
+    itemId: String,
+    maxAttempts: Int = 2,
+    finalize: suspend (itemId: String) -> T,
+): T = retryPrivateAlbumIdempotentRequest(
+    stableId = itemId,
+    invalidIdError = "INVALID_PRIVATE_ALBUM_ITEM",
+    maxAttempts = maxAttempts,
+    request = finalize,
+)
+
+private suspend fun <T> retryPrivateAlbumIdempotentRequest(
+    stableId: String,
+    invalidIdError: String,
+    maxAttempts: Int,
+    request: suspend (stableId: String) -> T,
+): T {
+    require(maxAttempts > 0)
+    requireUuid(stableId, invalidIdError)
+    var attempt = 1
+    while (true) {
+        try {
+            return request(stableId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (attempt >= maxAttempts || !error.isPrivateAlbumReservationResponseUncertain()) {
+                throw error
+            }
+            attempt += 1
+        }
+    }
+}
+
+internal fun ReservedPrivateAlbumItem.toAlreadyAvailableItemOrNull(): PrivateAlbumItem? {
+    if (reservationStatus != "available") return null
+    return PrivateAlbumItem(
+        itemId = requireUuid(itemId, "INVALID_PRIVATE_ALBUM_RESPONSE"),
+        position = requireNotNull(position) { "INVALID_PRIVATE_ALBUM_RESPONSE" },
+        itemStatus = "available",
+    )
+}
+
+internal suspend fun completeOrUploadPrivateAlbumReservation(
+    reservation: ReservedPrivateAlbumItem,
+    uploadReservedItem: suspend (ReservedPrivateAlbumItem) -> PrivateAlbumItem,
+): PrivateAlbumItem = reservation.toAlreadyAvailableItemOrNull()
+    ?: uploadReservedItem(reservation)
+
 private suspend fun runPrivateAlbumCleanupStep(
     timeoutMillis: Long,
     action: suspend () -> Unit,
@@ -471,6 +553,23 @@ internal fun Throwable.isPrivateAlbumStorageAccessDenied(): Boolean = selfAndCau
         normalizedMessage.contains("42501") ||
         normalizedMessage.contains("unauthorized") ||
         normalizedMessage.contains("forbidden")
+}
+
+internal fun Throwable.isPrivateAlbumReservationResponseUncertain(): Boolean = selfAndCauses().any { error ->
+    when (error) {
+        is HttpRequestTimeoutException,
+        is HttpRequestException,
+        is SocketTimeoutException,
+        is IOException,
+        is SerializationException,
+        -> true
+        is RestException -> error.statusCode == 408 || error.statusCode >= 500
+        is ResponseException -> {
+            val statusCode = error.response.status.value
+            statusCode == 408 || statusCode >= 500
+        }
+        else -> false
+    }
 }
 
 private fun ByteArray.isPrivateAlbumJpeg(): Boolean =

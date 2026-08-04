@@ -1,4 +1,4 @@
-version: 6
+version: 9
 domain: private-photo-album
 
 scenarios:
@@ -406,6 +406,8 @@ scenarios:
       - reservation_ttl_minutes: 30
       - first_reservation_commits_but_response_is_lost: true
     when:
+      - first_client_reservation_response_is_indeterminate: true
+      - client_retries_only_reservation_once: true
       - retry_uses_same_album_mime_and_key: true
       - server_clock_passes_reservation_deadline: true
       - late_storage_insert_is_attempted: true
@@ -413,6 +415,8 @@ scenarios:
       - normal_cleanup_worker_polls_repeatedly: true
     then:
       - retry_returns_same_item_and_path_while_live: true
+      - reservation_attempt_idempotency_keys_are_equal: true
+      - business_error_or_cancellation_is_retried: false
       - album_slots_consumed_by_same_key: 1
       - late_storage_insert_allowed: false
       - late_finalize_item_status: deleting
@@ -455,3 +459,52 @@ scenarios:
       - security_or_invariant_failure_uses_simple_preview_warning: false
       - security_or_invariant_failure_clears_private_bytes_and_derived_state: true
       - security_or_invariant_failure_triggers_second_upload: false
+
+  - id: ALBUM-028-completed-idempotent-reservation
+    name: Resposta defensiva de item concluído não reenvia a foto
+    given:
+      - owner: user-free
+      - private_album_exists: true
+      - adapter_response_status: available
+      - completed_reservation_object_path: null
+    when:
+      - gateway_handles_completed_reservation_response: true
+    then:
+      - call_succeeds_with_existing_item: true
+      - storage_upload_called: false
+      - finalize_called: false
+      - cleanup_called: false
+      - automatic_second_photo_created: false
+
+  - id: ALBUM-029-lost-finalize-response
+    name: Resposta perdida da finalização não repete o upload
+    given:
+      - owner: user-free
+      - storage_upload_completed: true
+      - first_finalize_commits_but_response_is_lost: true
+    when:
+      - finalize_response_is_indeterminate: true
+      - client_retries_only_finalize_once: true
+    then:
+      - finalize_attempt_item_ids_are_equal: true
+      - storage_upload_calls: 1
+      - final_item_status: available
+      - business_error_or_cancellation_is_retried: false
+
+  - id: ALBUM-030-bulk-revoke-selection
+    name: Revogação em lote remove somente os acessos selecionados
+    given:
+      - owner: user-free
+      - private_album_exists: true
+      - active_grants: [user-extra, user-pro, user-moderation-review]
+    when:
+      - owner_opens_sharing_management: true
+      - owner_selects_recipients: [user-extra, user-pro]
+      - owner_confirms_stop_sharing: true
+    then:
+      - revoked_recipients: [user-extra, user-pro]
+      - user_moderation_review_access_remains: true
+      - revoked_recipient_storage_reads_allowed: false
+      - unselected_recipient_storage_read_allowed: true
+      - client_selection_cleared: true
+      - authoritative_grant_list_reloaded: true

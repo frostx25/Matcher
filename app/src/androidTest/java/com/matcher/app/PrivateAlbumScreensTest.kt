@@ -15,8 +15,10 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.MyPrivateAlbumScreen
 import com.matcher.app.ui.ReceivedPrivateAlbumScreen
+import com.matcher.app.ui.PrivateAlbumGrantUi
 import com.matcher.app.ui.PrivateAlbumPhotoUi
 import com.matcher.app.ui.PrivateAlbumImageDecoder
+import com.matcher.app.ui.PrivateAlbumTargetUi
 import com.matcher.app.ui.PrivateAlbumWarningScreen
 import com.matcher.app.ui.SharedPrivateAlbumUi
 import com.matcher.app.ui.SharedPrivateAlbumsSection
@@ -84,6 +86,7 @@ class PrivateAlbumScreensTest {
                     onPhotoError = {},
                     onDeletePhoto = {},
                     onToggleGrant = { _, _ -> },
+                    onRevokeGrants = {},
                     onDeleteAlbum = {},
                 )
             }
@@ -121,6 +124,7 @@ class PrivateAlbumScreensTest {
                     onPhotoError = {},
                     onDeletePhoto = {},
                     onToggleGrant = { _, _ -> },
+                    onRevokeGrants = {},
                     onDeleteAlbum = {},
                 )
             }
@@ -132,6 +136,52 @@ class PrivateAlbumScreensTest {
         composeRule.onAllNodesWithContentDescription("Foto privada")
             .onFirst()
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun sharingScreenSelectsMultipleRecipientsBeforeRevoking() {
+        val firstId = "00000000-0000-4000-8000-000000000411"
+        val secondId = "00000000-0000-4000-8000-000000000412"
+        var revoked = emptySet<String>()
+        composeRule.setContent {
+            MatcherTheme {
+                MyPrivateAlbumScreen(
+                    albumExists = true,
+                    photos = listOf(
+                        PrivateAlbumPhotoUi(
+                            id = "synthetic-sharing-photo",
+                            position = 0,
+                            bytes = SYNTHETIC_PIXEL_PNG.copyOf(),
+                        ),
+                    ),
+                    grants = listOf(
+                        PrivateAlbumGrantUi(firstId, "Contato A"),
+                        PrivateAlbumGrantUi(secondId, "Contato B"),
+                    ),
+                    targets = listOf(
+                        PrivateAlbumTargetUi(firstId, "Contato A", shared = true),
+                        PrivateAlbumTargetUi(secondId, "Contato B", shared = true),
+                    ),
+                    loading = false,
+                    errorMessage = null,
+                    onBack = {},
+                    onAddPhoto = {},
+                    onPhotoError = {},
+                    onDeletePhoto = {},
+                    onToggleGrant = { _, _ -> },
+                    onRevokeGrants = { revoked = it },
+                    onDeleteAlbum = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("manage-private-album-sharing").performClick()
+        composeRule.onNodeWithTag("private-album-sharing").assertIsDisplayed()
+        composeRule.onNodeWithTag("select-album-grant-$firstId").performClick()
+        composeRule.onNodeWithTag("select-album-grant-$secondId").performClick()
+        composeRule.onNodeWithText("Parar de compartilhar (2)").assertIsDisplayed()
+        composeRule.onNodeWithTag("stop-private-album-sharing").performClick()
+        composeRule.runOnIdle { assertEquals(setOf(firstId, secondId), revoked) }
     }
 
     @Test

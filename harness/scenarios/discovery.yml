@@ -1,4 +1,4 @@
-version: 2
+version: 3
 domain: gender-discovery-preferences
 
 scenarios:
@@ -140,3 +140,23 @@ scenarios:
       - old_profiles_retained_in_grid: false
       - new_first_page_replaces_grid: true
       - old_and_new_pages_merged: false
+
+  - id: DISC-UI-011-compact-three-column-home
+    name: Tela inicial usa grade compacta e responsiva sem expor dados privados
+    given:
+      - viewer: user-free
+      - approved_public_profiles:
+          [user-target-01, user-target-02, user-target-03]
+      - viewer_remaining_chat_openings: 5
+      - distance_precision: approximate_band
+    when:
+      - open_android_home: true
+    then:
+      - discovery_columns_phone_portrait: 3
+      - discovery_columns_wide_screen_minimum: 5
+      - own_profile_available_from_header_avatar: true
+      - filters_available_from_header: true
+      - quota_outside_profile_cards: true
+      - exact_distance_visible: false
+      - private_preference_visible: false
+      - unapproved_profile_media_visible: false

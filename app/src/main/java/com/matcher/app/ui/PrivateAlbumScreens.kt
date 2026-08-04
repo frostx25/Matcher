@@ -3,8 +3,10 @@ package com.matcher.app.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,8 +16,11 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -24,23 +29,31 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -142,6 +155,7 @@ internal fun MyPrivateAlbumScreen(
     onPhotoError: () -> Unit,
     onDeletePhoto: (String) -> Unit,
     onToggleGrant: (String, Boolean) -> Unit,
+    onRevokeGrants: (Set<String>) -> Unit,
     onDeleteAlbum: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -149,6 +163,9 @@ internal fun MyPrivateAlbumScreen(
     var showContentPolicy by rememberSaveable { mutableStateOf(false) }
     var contentPolicyAccepted by rememberSaveable { mutableStateOf(false) }
     var showDeleteAlbum by rememberSaveable { mutableStateOf(false) }
+    var showSharing by rememberSaveable { mutableStateOf(false) }
+    var showAlbumMenu by rememberSaveable { mutableStateOf(false) }
+    var selectedGrantIds by remember { mutableStateOf(emptySet<String>()) }
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -166,168 +183,131 @@ internal fun MyPrivateAlbumScreen(
         }
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Black)
-            .testTag("my-private-album"),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            AlbumHeader(
-                title = "Seu álbum privado",
-                subtitle = "${photos.size}/10 fotos · acesso individual",
-                onBack = onBack,
-            )
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Surface, RoundedCornerShape(22.dp))
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+    if (showSharing) {
+        PrivateAlbumSharingScreen(
+            grants = grants,
+            targets = targets,
+            selectedGrantIds = selectedGrantIds,
+            loading = loading,
+            errorMessage = errorMessage,
+            onBack = {
+                selectedGrantIds = emptySet()
+                showSharing = false
+            },
+            onSelectedChange = { selectedGrantIds = it },
+            onGrant = { recipientId -> onToggleGrant(recipientId, false) },
+            onRevokeSelected = {
+                val recipients = selectedGrantIds
+                selectedGrantIds = emptySet()
+                onRevokeGrants(recipients)
+            },
+        )
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Black)
+                .testTag("my-private-album"),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                OwnerAlbumHeader(
+                    subtitle = "${photos.size}/10 fotos · acesso individual",
+                    albumExists = albumExists,
+                    loading = loading,
+                    menuExpanded = showAlbumMenu,
+                    onMenuExpandedChange = { showAlbumMenu = it },
+                    onBack = onBack,
+                    onManageSharing = { showSharing = true },
+                    onDeleteAlbum = { showDeleteAlbum = true },
+                )
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                PrivateAlbumOverviewCard(
+                    photoCount = photos.size,
+                    grantCount = grants.size,
+                    albumExists = albumExists,
+                    loading = loading,
+                    onManageSharing = { showSharing = true },
+                )
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Surface, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.Outlined.Lock, null, tint = SoftPink)
-                    Text("Privado por padrão", color = SoftPink, fontWeight = FontWeight.Bold)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Privado por padrão", color = SoftPink, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Não aparece na descoberta. Só abre para quem você liberar.",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                        )
+                    }
                 }
-                Text(
-                    "As fotos entram sem aprovação prévia e nunca aparecem na descoberta. Violações ainda podem ser denunciadas e removidas.",
-                    color = TextSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                )
-                Button(
-                    onClick = { showContentPolicy = true },
+            }
+            if (loading) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(Modifier.fillMaxWidth().height(54.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Pink)
+                    }
+                }
+            }
+            item(key = "add-private-album-photo") {
+                PrivateAlbumAddTile(
                     enabled = !loading && photos.size < 10,
-                    modifier = Modifier.fillMaxWidth().testTag("add-private-album-photo"),
-                    colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
-                ) {
+                    onClick = { showContentPolicy = true },
+                )
+            }
+            items(photos.sortedBy { it.position }, key = { it.id }) { photo ->
+                PrivatePhotoTile(
+                    photo = photo,
+                    canDelete = !loading,
+                    onDelete = { onDeletePhoto(photo.id) },
+                )
+            }
+            if (photos.isEmpty() && !loading) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        if (photos.isEmpty()) "Criar álbum e adicionar foto" else "Adicionar foto",
-                        fontWeight = FontWeight.Bold,
+                        "Adicione a primeira foto. O álbum continuará visível somente para você até liberar um acesso.",
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
                     )
                 }
-                if (photos.size >= 10) {
-                    Text("O álbum chegou ao limite de 10 fotos.", color = TextSecondary, fontSize = 12.sp)
-                }
             }
-        }
-        if (loading) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Pink)
-                }
-            }
-        }
-        items(photos.sortedBy { it.position }, key = { it.id }) { photo ->
-            PrivatePhotoTile(
-                photo = photo,
-                canDelete = !loading,
-                onDelete = { onDeletePhoto(photo.id) },
-            )
-        }
-        if (photos.isEmpty() && !loading) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    "Seu álbum ainda está vazio. Só você verá a primeira foto até liberar o acesso para alguém.",
-                    color = TextSecondary,
-                    modifier = Modifier.padding(vertical = 12.dp),
-                )
-            }
-        }
-        if (photos.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SurfaceRaised, RoundedCornerShape(22.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("Liberar para alguém", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+            if (photos.size >= 10) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        "A outra pessoa verá um aviso antes de abrir. Você pode revogar a qualquer momento.",
+                        "O álbum chegou ao limite de 10 fotos.",
                         color = TextSecondary,
                         fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 10.dp),
                     )
-                    if (targets.isEmpty()) {
-                        Text("Nenhum perfil disponível agora.", color = TextSecondary, fontSize = 12.sp)
-                    }
-                    targets.forEach { target ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(target.displayName, color = MaterialTheme.colorScheme.onBackground)
-                            OutlinedButton(
-                                onClick = { onToggleGrant(target.id, target.shared) },
-                                enabled = !loading,
-                                modifier = Modifier.testTag("album-grant-${target.id}"),
-                            ) {
-                                Text(if (target.shared) "Revogar" else "Liberar")
-                            }
-                        }
-                    }
                 }
             }
-        }
-        if (grants.any { grant -> targets.none { it.id == grant.recipientId } }) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Surface, RoundedCornerShape(22.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Outros acessos ativos", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
-                    grants.filter { grant -> targets.none { it.id == grant.recipientId } }.forEach { grant ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(grant.displayName, color = TextSecondary)
-                            TextButton(
-                                onClick = { onToggleGrant(grant.recipientId, true) },
-                                enabled = !loading,
-                            ) { Text("Revogar") }
-                        }
-                    }
+            errorMessage?.let { message ->
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(message, color = Pink, modifier = Modifier.padding(top = 10.dp).testTag("private-album-error"))
                 }
             }
-        }
-        errorMessage?.let { message ->
             item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(message, color = Pink, modifier = Modifier.testTag("private-album-error"))
+                Text(
+                    "Capturas de tela ou fotos feitas com outro aparelho não podem ser impedidas. Libere apenas para pessoas em quem confia.",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp),
+                )
             }
-        }
-        if (albumExists) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                OutlinedButton(
-                    onClick = { showDeleteAlbum = true },
-                    enabled = !loading,
-                    modifier = Modifier.fillMaxWidth().testTag("delete-private-album"),
-                ) { Text("Excluir álbum privado") }
-            }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                "Capturas de tela ou fotos feitas com outro aparelho não podem ser impedidas. Libere apenas para pessoas em quem confia.",
-                color = TextSecondary,
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-                modifier = Modifier.padding(vertical = 6.dp),
-            )
         }
     }
 
@@ -389,6 +369,311 @@ internal fun MyPrivateAlbumScreen(
                 TextButton(onClick = { showDeleteAlbum = false }) { Text("Cancelar") }
             },
         )
+    }
+}
+
+@Composable
+private fun OwnerAlbumHeader(
+    subtitle: String,
+    albumExists: Boolean,
+    loading: Boolean,
+    menuExpanded: Boolean,
+    onMenuExpandedChange: (Boolean) -> Unit,
+    onBack: () -> Unit,
+    onManageSharing: () -> Unit,
+    onDeleteAlbum: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.testTag("back-private-album")) {
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = MaterialTheme.colorScheme.onBackground)
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Meu álbum privado", color = MaterialTheme.colorScheme.onBackground, fontSize = 25.sp, fontWeight = FontWeight.Black)
+            Text(subtitle, color = TextSecondary, fontSize = 12.sp)
+        }
+        if (albumExists) {
+            Box {
+                IconButton(
+                    onClick = { onMenuExpandedChange(true) },
+                    enabled = !loading,
+                    modifier = Modifier.testTag("private-album-menu"),
+                ) {
+                    Icon(Icons.Outlined.MoreVert, "Mais opções do álbum", tint = MaterialTheme.colorScheme.onBackground)
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { onMenuExpandedChange(false) },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Gerenciar compartilhamento") },
+                        leadingIcon = { Icon(Icons.Outlined.Group, null) },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onManageSharing()
+                        },
+                        enabled = !loading,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Excluir álbum") },
+                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                        onClick = {
+                            onMenuExpandedChange(false)
+                            onDeleteAlbum()
+                        },
+                        enabled = !loading,
+                        modifier = Modifier.testTag("delete-private-album"),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrivateAlbumOverviewCard(
+    photoCount: Int,
+    grantCount: Int,
+    albumExists: Boolean,
+    loading: Boolean,
+    onManageSharing: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = SurfaceRaised,
+        border = BorderStroke(1.dp, SoftPink.copy(alpha = 0.22f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier.size(44.dp).background(SoftPink.copy(alpha = 0.14f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.Lock, null, tint = SoftPink)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Seu espaço reservado", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    Text(
+                        "$photoCount ${if (photoCount == 1) "foto" else "fotos"} · $grantCount ${if (grantCount == 1) "pessoa com acesso" else "pessoas com acesso"}",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = onManageSharing,
+                enabled = albumExists && photoCount > 0 && !loading,
+                modifier = Modifier.fillMaxWidth().testTag("manage-private-album-sharing"),
+            ) {
+                Icon(if (grantCount == 0) Icons.Outlined.PersonAdd else Icons.Outlined.Group, null)
+                Text(
+                    if (grantCount == 0) "Compartilhar álbum" else "Compartilhado com $grantCount",
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrivateAlbumAddTile(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.82f)
+            .clickable(enabled = enabled, onClick = onClick)
+            .testTag("add-private-album-photo"),
+        shape = RoundedCornerShape(16.dp),
+        color = Surface,
+        border = BorderStroke(1.dp, SoftPink.copy(alpha = if (enabled) 0.55f else 0.18f)),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                modifier = Modifier.size(42.dp).background(SoftPink.copy(alpha = 0.13f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.Add, "Adicionar foto", tint = if (enabled) SoftPink else TextSecondary)
+            }
+            Text(
+                "Adicionar",
+                color = if (enabled) MaterialTheme.colorScheme.onBackground else TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrivateAlbumSharingScreen(
+    grants: List<PrivateAlbumGrantUi>,
+    targets: List<PrivateAlbumTargetUi>,
+    selectedGrantIds: Set<String>,
+    loading: Boolean,
+    errorMessage: String?,
+    onBack: () -> Unit,
+    onSelectedChange: (Set<String>) -> Unit,
+    onGrant: (String) -> Unit,
+    onRevokeSelected: () -> Unit,
+) {
+    val unsharedTargets = targets.filterNot { it.shared }.sortedBy { it.displayName.lowercase() }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Black)
+            .testTag("private-album-sharing"),
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                top = 18.dp,
+                end = 16.dp,
+                bottom = if (selectedGrantIds.isEmpty()) 28.dp else 126.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                AlbumHeader(
+                    title = "Compartilhamento",
+                    subtitle = "${grants.size} ${if (grants.size == 1) "pessoa com acesso" else "pessoas com acesso"}",
+                    onBack = onBack,
+                )
+            }
+            item {
+                Text(
+                    "Selecione quem deve perder o acesso. A remoção passa a valer assim que for confirmada.",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Surface, RoundedCornerShape(18.dp))
+                        .padding(14.dp),
+                )
+            }
+            item {
+                Text("Com acesso", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            }
+            if (grants.isEmpty()) {
+                item {
+                    Text(
+                        "Ninguém tem acesso ao seu álbum agora.",
+                        color = TextSecondary,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                }
+            } else {
+                lazyItems(grants.sortedBy { it.displayName.lowercase() }, key = { it.recipientId }) { grant ->
+                    val selected = grant.recipientId in selectedGrantIds
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (selected) SoftPink.copy(alpha = 0.10f) else Surface, RoundedCornerShape(16.dp))
+                            .clickable(enabled = !loading) {
+                                onSelectedChange(
+                                    if (selected) selectedGrantIds - grant.recipientId else selectedGrantIds + grant.recipientId,
+                                )
+                            }
+                            .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(grant.displayName, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                            Text("Acesso ativo", color = ActiveMint, fontSize = 12.sp)
+                        }
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = {
+                                onSelectedChange(
+                                    if (selected) selectedGrantIds - grant.recipientId else selectedGrantIds + grant.recipientId,
+                                )
+                            },
+                            enabled = !loading,
+                            modifier = Modifier.testTag("select-album-grant-${grant.recipientId}"),
+                        )
+                    }
+                }
+            }
+            item {
+                Text(
+                    "Liberar novo acesso",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 20.sp,
+                    modifier = Modifier.padding(top = 14.dp),
+                )
+            }
+            if (unsharedTargets.isEmpty()) {
+                item { Text("Nenhum perfil disponível agora.", color = TextSecondary) }
+            } else {
+                lazyItems(unsharedTargets, key = { it.id }) { target ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            target.displayName,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedButton(
+                            onClick = { onGrant(target.id) },
+                            enabled = !loading,
+                            modifier = Modifier.testTag("album-grant-${target.id}"),
+                        ) { Text("Liberar") }
+                    }
+                }
+            }
+            if (loading) {
+                item {
+                    Box(Modifier.fillMaxWidth().height(54.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Pink)
+                    }
+                }
+            }
+            errorMessage?.let { message ->
+                item { Text(message, color = Pink, modifier = Modifier.testTag("private-album-error")) }
+            }
+        }
+
+        if (selectedGrantIds.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                color = Surface,
+                shadowElevation = 12.dp,
+            ) {
+                Button(
+                    onClick = onRevokeSelected,
+                    enabled = !loading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .height(52.dp)
+                        .testTag("stop-private-album-sharing"),
+                    colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                ) {
+                    Text("Parar de compartilhar (${selectedGrantIds.size})", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 
