@@ -73,6 +73,13 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - O compositor permanece fixo com o teclado, rejeita mensagem vazia, preserva o rascunho após falha e limpa somente depois da confirmação do repositório.
 - O modo remoto atualiza os acessos de álbum ao entrar no chat e continua usando as operações autoritativas existentes.
 
+### Lista e primeira mensagem
+
+- A lista usa cartões compactos com foto pública autorizada, última mensagem, faixa aproximada e estado de conversa direta.
+- O estado vazio explica como iniciar contato e oferece `Descobrir pessoas`, que retorna diretamente para `Perto`.
+- A primeira mensagem usa um diálogo responsivo com identidade do destinatário, quota restante e consequência explícita do envio sem match ou aceite.
+- O botão `Enviar primeira mensagem` ocupa toda a largura, fica desabilitado sem texto e permanece visível com o teclado aberto.
+
 ### Backend e upload
 
 - Corrigida a idempotência da reserva/finalização de upload em `SupabasePrivateAlbumGateway.kt`.
@@ -102,7 +109,7 @@ Resultados:
 
 - Build concluído com sucesso.
 - 89 testes unitários aprovados, sem falhas ou testes ignorados.
-- 28 testes instrumentados compilados; os 3 novos testes da conversa foram executados no Samsung sem falha. Os 5 testes de smoke e o teste da descoberta já haviam sido executados anteriormente.
+- 31 testes instrumentados compilados. Os 3 testes da conversa ativa passaram no Samsung; os 3 testes novos da lista/primeira mensagem foram compilados, mas não executados no runner para preservar a sessão remota.
 - Lint: 0 erros e 7 avisos relacionados apenas a versões/API alvo.
 - Cenários YAML do harness validados.
 - `git diff --check` aprovado, com apenas avisos de conversão CRLF.
@@ -115,14 +122,14 @@ APK atual:
 
 SHA-256:
 
-`6F80B33E1CEB3128BC93AADA8CF8DE8A0A35FA448B8F068228F02592FC6F7ECC`
+`83741EE9FD19111D9130BD58EF8650ED7074C38505BAB576BC8D95C90B15DBD1`
 
-A execução instrumentada isolada da conversa limpou a sessão remota do aplicativo. O APK ficou validado em modo demonstrativo com dados sintéticos; para retomar o backend real no Samsung, é necessário entrar novamente por e-mail/OTP. Não reutilizar tokens antigos.
+A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preservou a sessão e a lista vazia, o retorno para `Perto` e o diálogo da primeira mensagem foram validados com o backend real. Um texto sintético foi digitado somente para conferir o teclado e cancelado sem envio.
 
 ## Próximos passos recomendados
 
-1. Refinar a lista de conversas e o diálogo da primeira mensagem para completar a mesma linguagem visual do chat ativo.
-2. Implementar o envio moderado de fotos na conversa, hoje previsto no produto mas ainda fora do adapter Android atual.
+1. Implementar o envio moderado de fotos na conversa, hoje previsto no produto mas ainda fora do adapter Android atual.
+2. Adicionar estados de entrega/erro e indicadores de mensagens não lidas sem registrar conteúdo sensível em telemetria.
 3. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
 4. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
 5. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.

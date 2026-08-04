@@ -13,7 +13,7 @@ Checkpoint de 04/08/2026. O código inclui autenticação por OTP, onboarding po
 
 - Banco: 370 asserções pgTAP passaram localmente; a suíte nova de leases/reaper também passou no `Matcher Dev` com 47/47.
 - Edge `private-album-media`: 25/25 testes Deno, `fmt --check` e type-check aprovados antes da publicação.
-- Android: 89/89 testes unitários, `lintDebug`, `assembleDebug` e os 28 testes instrumentados compilados por `compileDebugAndroidTestKotlin` foram aprovados. O lint terminou com 0 erros e 7 avisos apenas de versões disponíveis/target API.
+- Android: 89/89 testes unitários, `lintDebug`, `assembleDebug` e os 31 testes instrumentados compilados por `compileDebugAndroidTestKotlin` foram aprovados. O lint terminou com 0 erros e 7 avisos apenas de versões disponíveis/target API.
 - O upload Android repete somente a reserva uma vez após resposta indeterminada, sempre com a mesma `idempotency_key`; depois do Storage, uma finalização indeterminada é repetida uma vez com o mesmo `item_id`, sem reenviar bytes. Uma resposta defensiva `available` não chama Storage, finalização nem cleanup.
 - O gerenciamento do álbum foi reorganizado após uma inspeção funcional em modo somente leitura: entrada `Meus álbuns`, grade de três colunas, cartão `Adicionar`, resumo de acessos, menu `⋮`, tela dedicada de compartilhamento e seleção múltipla para revogação. O Matcher preserva identidade visual e textos próprios; o mapa está em `docs/UX-REFERENCE-ALBUMS.md`.
 - A tela inicial de descoberta também foi reorganizada: cabeçalho compacto `Perto` com avatar que abre o Perfil, quota e filtro; resumo da preferência privada; e grade densa com nome, idade, faixa aproximada e intenção sobre a miniatura autorizada. Ela usa três colunas no telefone em retrato e adapta para 4/5/6 conforme a largura disponível. O modo remoto e o protótipo local usam o mesmo componente visual.
@@ -21,7 +21,9 @@ Checkpoint de 04/08/2026. O código inclui autenticação por OTP, onboarding po
 - Dois novos testes Compose cobrem a separação das operações de álbum, o estado desabilitado e o acesso às ações de segurança. Eles foram compilados, mas não executados no aparelho para não limpar novamente a sessão remota já autenticada.
 - A conversa ativa foi redesenhada com faixa de identidade do perfil, foto pública autorizada, distância aproximada, compositor fixo, álbum contextual e menu superior de segurança. O atalho separa álbum recebido de liberar/revogar o próprio e nunca exibe prévia privada no chat.
 - Três novos testes Compose cobrem álbum e segurança, mensagem vazia, preservação do rascunho em falha e limpeza após sucesso. Os três passaram no Samsung.
-- APK debug gerado em `app/build/outputs/apk/debug/app-debug.apk`, SHA-256 `6F80B33E1CEB3128BC93AADA8CF8DE8A0A35FA448B8F068228F02592FC6F7ECC`.
+- A lista de conversas agora mostra somente conversas ativas em cartões compactos; o vazio orienta a voltar a `Perto`. O diálogo da primeira mensagem identifica destinatário, quota e abertura direta, com CTA integral e comportamento responsivo ao teclado.
+- Três testes Compose adicionais cobrem estado vazio/retorno à descoberta, cartão ativo e primeira mensagem. Eles foram compilados, mas não executados no aparelho para evitar limpar novamente a sessão autenticada.
+- APK debug gerado em `app/build/outputs/apk/debug/app-debug.apk`, SHA-256 `83741EE9FD19111D9130BD58EF8650ED7074C38505BAB576BC8D95C90B15DBD1`.
 - O APK foi instalado e validado no Samsung SM-A315G (Android 12/API 31): abriu sem crash, preservou a sessão, enviou uma imagem JPEG sintética, exibiu a quinta prévia e removeu exatamente esse item. Não houve `FATAL EXCEPTION`; os únicos avisos observados foram os já conhecidos do renderizador/driver do aparelho.
 - A nova navegação de álbuns também foi aberta no Samsung sem alterar fotos ou acessos. O YAML do harness versão 9 passou no lint e inclui o cenário de revogação em lote.
 - A nova descoberta foi validada visualmente no Samsung em modo de demonstração, sem dados reais. O teste Compose `RemoteDiscoveryScreenTest` confirmou três cartões na mesma linha, abertura do Perfil pelo avatar e acesso aos filtros.
@@ -29,12 +31,12 @@ Checkpoint de 04/08/2026. O código inclui autenticação por OTP, onboarding po
 - Depois do novo login, a grade remota foi validada com a conta real no Samsung: três colunas legíveis no retrato, somente placeholders/mídia autorizada, avatar abrindo `Seu perfil`, filtro abrindo e fechando sem salvar alterações e nenhuma distância exata. O APK final foi reinstalado com `-r`, preservou a sessão e ficou aberto na descoberta.
 - O novo perfil público também foi aberto com a conta remota no Samsung. Foram conferidos visualmente o hero, os cartões de privacidade, a barra fixa, `Liberar meu álbum`, `Bloquear perfil` e `Denunciar perfil`; nenhum desses comandos com efeito persistente foi confirmado.
 - A conversa foi inspecionada no Samsung em modo demonstrativo com dados sintéticos: cabeçalho, mensagem, compositor, álbum desabilitado e menu de segurança renderizaram corretamente. Nenhuma mensagem, concessão, denúncia ou bloqueio foi confirmado.
-- A execução isolada de `ConversationDetailScreenTest` limpou a sessão remota do APK. É necessário autenticar novamente por e-mail/OTP antes de novos testes com o backend real; tokens antigos não devem ser reutilizados.
+- Depois de novo login por e-mail/OTP, o APK foi instalado com `-r` e preservou a sessão. A lista vazia, o retorno para `Perto` e o diálogo da primeira mensagem foram conferidos no backend real; o texto sintético usado para validar o teclado foi cancelado e nenhuma mensagem foi enviada.
 
 ## Próximos passos
 
-- Refinar a lista de conversas e o diálogo da primeira mensagem para completar a linguagem visual do chat ativo.
 - Implementar o envio de fotos moderadas na conversa, previsto no produto mas ainda ausente do adapter Android atual.
+- Adicionar estados de entrega/erro e indicadores de não lidas sem enviar conteúdo de mensagem para telemetria.
 - Capturar em uma ferramenta de rede um download autenticado pela Edge Function para registrar explicitamente `200`, tipo de imagem e `Cache-Control: private, no-store`; a prévia autenticada já passou no aplicativo.
 - Decidir se a próxima fase inclui múltiplos álbuns nomeados; isso exige migration e novos contratos, pois o servidor atual impõe corretamente um único álbum ativo por titular.
 - Antes de produção, criar um projeto `Matcher Prod` separado, separar builds/segredos, automatizar migrations/functions, agendar o cleanup, implementar exclusão de conta e operação de moderação, e configurar backup/restore, limites e alertas.

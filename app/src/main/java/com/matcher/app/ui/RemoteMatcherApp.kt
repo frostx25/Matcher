@@ -610,6 +610,7 @@ private fun RemoteHome(
                     conversations = state.chat.conversations,
                     remainingChats = state.chat.remainingQuota,
                     onOpenConversation = { activeConversationId = it },
+                    onExplore = { selectedTab = 0 },
                     modifier = Modifier.padding(padding),
                 )
                 else -> RemoteProfileScreen(

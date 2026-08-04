@@ -6,12 +6,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +30,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -80,6 +79,7 @@ internal fun ConversationsScreen(
     conversations: List<Conversation>,
     remainingChats: Int,
     onOpenConversation: (String) -> Unit,
+    onExplore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -101,15 +101,48 @@ internal fun ConversationsScreen(
                         .weight(1f)
                         .padding(end = 12.dp),
                 ) {
-                    Text("Conversas", color = MaterialTheme.colorScheme.onBackground, fontSize = 29.sp, fontWeight = FontWeight.Black)
-                    Text("Contato direto com bloqueio sempre disponível.", color = TextSecondary, fontSize = 13.sp)
+                    Text(
+                        "Conversas",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-0.6).sp,
+                    )
+                    Text(
+                        "Mensagens diretas, sem match ou solicitação.",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                    )
                 }
                 QuotaPill(remainingChats)
             }
         }
 
         if (conversations.isNotEmpty()) {
-            item { SectionTitle("Ativas", "sem aceite prévio", ActiveMint) }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(ActiveMint))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Ativas",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "SEM ACEITE PRÉVIO",
+                        color = TextSecondary,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                    )
+                }
+            }
             items(conversations, key = { it.id }) { conversation ->
                 val otherUserId = conversation.participantIds.firstOrNull { it != currentUserId }
                 val profile = profiles.firstOrNull { it.id == otherUserId }
@@ -126,25 +159,9 @@ internal fun ConversationsScreen(
 
         if (conversations.isEmpty()) {
             item {
-                EmptyConversationCard()
+                EmptyConversationCard(onExplore = onExplore)
             }
         }
-    }
-}
-
-@Composable
-private fun SectionTitle(title: String, detail: String, color: Color) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-        Spacer(Modifier.width(8.dp))
-        Text(title, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.weight(1f))
-        Text(detail.uppercase(), color = TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
     }
 }
 
@@ -156,90 +173,123 @@ private fun ActiveConversationCard(
     onOpen: () -> Unit,
 ) {
     val lastMessage = conversation.messages.lastOrNull()
-    StatusRailCard(
-        accent = ActiveMint,
-        modifier = Modifier
-            .clickable(onClick = onOpen)
-            .testTag("active-${profile.id}"),
-    ) {
-        ProfileLine(profile = profile, status = "CONVERSA ATIVA", statusColor = ActiveMint)
-        Spacer(Modifier.height(10.dp))
-        Text(
-            text = when {
-                lastMessage == null -> "Conversa iniciada"
-                lastMessage.senderId == currentUserId -> "Você: ${lastMessage.body}"
-                else -> lastMessage.body
-            },
-            color = TextSecondary,
-            fontSize = 14.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun StatusRailCard(
-    accent: Color,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
             .clip(RoundedCornerShape(22.dp))
-            .background(Surface),
+            .background(Surface)
+            .clickable(onClick = onOpen)
+            .padding(12.dp)
+            .testTag("active-${profile.id}"),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(5.dp).fillMaxHeight().background(accent))
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(16.dp),
-            content = content,
-        )
-    }
-}
-
-@Composable
-private fun ProfileLine(profile: DemoProfile, status: String, statusColor: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
-                .size(46.dp)
-                .clip(CircleShape)
-                .background(profile.colors.first()),
+                .size(64.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Brush.linearGradient(profile.colors)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(profile.initials, color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp)
+            if (profile.avatarUrl != null) {
+                AsyncImage(
+                    model = profile.avatarUrl,
+                    contentDescription = "Foto pública de ${profile.name}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    profile.initials,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 17.sp,
+                )
+            }
         }
-        Spacer(Modifier.width(11.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Spacer(Modifier.width(12.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(profile.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    profile.name,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 if (profile.verified) {
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Outlined.Verified, "Verificado", tint = Pink, modifier = Modifier.size(15.dp))
+                    Icon(Icons.Outlined.Verified, "18+ verificado", tint = Pink, modifier = Modifier.size(15.dp))
                 }
             }
-            Text(profile.distance, color = TextSecondary, fontSize = 11.sp)
+            Text(
+                text = when {
+                    lastMessage == null -> "Conversa iniciada"
+                    lastMessage.senderId == currentUserId -> "Você: ${lastMessage.body}"
+                    else -> lastMessage.body
+                },
+                color = TextSecondary,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(6.dp).clip(CircleShape).background(ActiveMint))
+                Spacer(Modifier.width(6.dp))
+                Text("DIRETA", color = ActiveMint, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                Text("  ·  ${profile.distance}", color = TextSecondary, fontSize = 10.sp)
+            }
         }
-        Text(status, color = statusColor, fontFamily = FontFamily.Monospace, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Icon(Icons.Outlined.ChevronRight, "Abrir conversa", tint = TextSecondary)
     }
 }
 
 @Composable
-private fun EmptyConversationCard() {
+private fun EmptyConversationCard(onExplore: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(Surface)
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(22.dp)
+            .testTag("empty-conversations"),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Tudo tranquilo por aqui", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-        Text("A primeira mensagem já abre uma conversa. Bloqueio e denúncia ficam disponíveis dentro do chat.", color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+        Box(
+            modifier = Modifier
+                .size(58.dp)
+                .clip(RoundedCornerShape(19.dp))
+                .background(Color(0xFF351525)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.ChatBubbleOutline, null, tint = Pink, modifier = Modifier.size(27.dp))
+        }
+        Text(
+            "Comece por um perfil",
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Black,
+            fontSize = 20.sp,
+        )
+        Text(
+            "Abra alguém em Perto e envie a primeira mensagem. A conversa entra aqui imediatamente, sem match ou aceite.",
+            color = TextSecondary,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+        Button(
+            onClick = onExplore,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .testTag("explore-from-empty-conversations"),
+            colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+            shape = RoundedCornerShape(18.dp),
+        ) {
+            Text("Descobrir pessoas", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -526,7 +576,7 @@ internal fun ConversationDetailScreen(
 }
 
 @Composable
-private fun ConversationAvatar(profile: DemoProfile?, fallbackName: String) {
+internal fun ConversationAvatar(profile: DemoProfile?, fallbackName: String) {
     Box(
         modifier = Modifier
             .size(46.dp)

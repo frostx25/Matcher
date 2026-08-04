@@ -1,4 +1,4 @@
-version: 4
+version: 5
 domain: direct-chat
 
 scenarios:
@@ -189,3 +189,22 @@ scenarios:
       - private_album_thumbnail_visible: false
       - empty_message_send_enabled: false
       - conversation_requires_match_or_acceptance: false
+
+  - id: CHAT-015-list-and-first-message
+    name: Lista vazia orienta descoberta e primeira mensagem explica abertura direta
+    given:
+      - active_conversation_count: 0
+      - quota_new_conversations: 5
+      - recipient: user-target-01
+    when:
+      - open_conversation_list: true
+      - return_to_discovery_from_empty_state: true
+      - open_first_message_dialog: true
+    then:
+      - pending_or_match_sections_visible: false
+      - discover_people_action_visible: true
+      - recipient_public_identity_visible: true
+      - remaining_quota_visible: true
+      - direct_opening_consequence_visible: true
+      - empty_first_message_send_enabled: false
+      - recipient_acceptance_required: false

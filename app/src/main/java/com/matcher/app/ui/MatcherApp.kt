@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -39,7 +41,6 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Verified
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
@@ -79,6 +80,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.matcher.app.domain.chat.ChatMessage
@@ -261,6 +263,7 @@ fun MatcherApp(
                     conversations = uiState.chat.conversations,
                     remainingChats = uiState.chat.remainingQuota,
                     onOpenConversation = { activeConversationId = it },
+                    onExplore = { selectedTab = 0 },
                     modifier = Modifier.padding(padding),
                 )
 
@@ -759,43 +762,124 @@ internal fun StartConversationDialog(
         null
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Surface,
-        shape = RoundedCornerShape(24.dp),
-        title = { Text("Conversar com ${profile.name}", fontWeight = FontWeight.Bold) },
-        text = {
+    Dialog(onDismissRequest = onDismiss) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 520.dp)
+                .imePadding()
+                .testTag("start-conversation-dialog"),
+            color = Surface,
+            shape = RoundedCornerShape(28.dp),
+            shadowElevation = 18.dp,
+        ) {
             Column {
-                Text("A primeira mensagem abre a conversa imediatamente. ${profile.name} poderá responder, bloquear ou denunciar.", color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = message,
-                    onValueChange = { message = it },
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("chat-message-input"),
-                    placeholder = { Text("Escreva algo gentil...") },
-                    minLines = 3,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        .height(5.dp)
+                        .background(Brush.horizontalGradient(profile.colors)),
                 )
-                Spacer(Modifier.height(8.dp))
-                Text("$remainingChats novas conversas restantes.", color = TextSecondary, fontSize = 12.sp)
-                quotaMessage?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(it, color = Pink, fontSize = 12.sp, modifier = Modifier.testTag("chat-error"))
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ConversationAvatar(profile = profile, fallbackName = profile.name)
+                        Spacer(Modifier.width(11.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "CONVERSA DIRETA",
+                                color = ActiveMint,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "${profile.name}, ${profile.age}",
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(SurfaceRaised)
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                        ) {
+                            Text(
+                                "$remainingChats restantes",
+                                color = if (remainingChats > 0) SoftPink else TextSecondary,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(
+                            "Diga oi do seu jeito",
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = 23.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-0.4).sp,
+                        )
+                        Text(
+                            "Ao enviar, a conversa fica ativa imediatamente. Não há match ou aceite prévio; depois, ambos podem responder, bloquear ou denunciar.",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = message,
+                        onValueChange = { message = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("chat-message-input"),
+                        placeholder = { Text("Escreva sua primeira mensagem") },
+                        minLines = 3,
+                        maxLines = 5,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        shape = RoundedCornerShape(20.dp),
+                    )
+
+                    quotaMessage?.let {
+                        Text(
+                            it,
+                            color = Pink,
+                            fontSize = 12.sp,
+                            modifier = Modifier.testTag("chat-error"),
+                        )
+                    }
+
+                    Button(
+                        onClick = { onSend(message) },
+                        enabled = canSend,
+                        colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .testTag("send-first-message"),
+                        shape = RoundedCornerShape(18.dp),
+                    ) {
+                        Text("Enviar primeira mensagem", fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("cancel-first-message"),
+                    ) {
+                        Text("Cancelar")
+                    }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSend(message) },
-                enabled = canSend,
-                colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
-                modifier = Modifier.testTag("send-first-message"),
-            ) { Text("Enviar e abrir conversa") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
-    )
+        }
+    }
 }
 
 @Composable
