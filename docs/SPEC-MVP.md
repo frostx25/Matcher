@@ -101,6 +101,9 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Não existe solicitação pendente, aceite prévio ou match obrigatório.
 - O destinatário pode responder, bloquear ou denunciar desde a primeira mensagem.
 - Bloquear interrompe novas mensagens e remove a visibilidade entre as contas; denunciar também cria um caso de moderação auditável.
+- A conversa ativa mantém voltar, identidade pública autorizada e menu de segurança no cabeçalho. Bloquear e denunciar ficam agrupados nesse menu e nunca dependem de assinatura.
+- O atalho contextual de álbum diferencia abrir o álbum recebido de liberar ou revogar o próprio álbum. Sem nenhuma ação disponível, o atalho fica desabilitado; a conversa nunca mostra miniatura ou imagem privada antes do aviso e da revalidação autoritativa.
+- O campo de mensagem e o envio permanecem fixos e utilizáveis com o teclado aberto. Mensagens vazias não são enviadas, uma falha preserva o texto digitado e somente a confirmação do repositório limpa o campo.
 - Texto e fotos são suportados; mídia efêmera e chamadas ficam fora do MVP.
 - Mensagens em conversas já ativas não consomem novas aberturas.
 
@@ -272,6 +275,8 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-02:** ao enviar a primeira mensagem, a conversa fica ativa para as duas contas sem aceite prévio, com bloquear e denunciar disponíveis.
 - **AC-CHAT-03:** uma conversa ativa permite várias mensagens sem consumir novas aberturas.
 - **AC-CHAT-04:** a sexta nova abertura no Free é bloqueada pelo servidor e oferece upgrade sem perder conversas existentes.
+- **AC-CHAT-05:** a conversa ativa mantém identidade pública, voltar, álbum contextual e segurança acessíveis sem rolar; abrir álbum recebido e liberar/revogar o álbum próprio são operações separadas e nenhuma miniatura privada aparece no chat.
+- **AC-CHAT-06:** bloquear e denunciar ficam disponíveis no menu de segurança; o compositor acompanha o teclado, recusa texto vazio e só limpa uma mensagem depois de o repositório confirmar o envio.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.

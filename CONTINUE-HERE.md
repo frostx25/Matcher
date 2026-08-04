@@ -20,7 +20,8 @@ Texto sugerido para o novo chat:
 
 - Branch: `main`
 - Checkpoint de descoberta/álbuns já enviado: `d9b8f2b` (`feat: refine discovery and private albums`).
-- A etapa seguinte redesenha o perfil público e deve aparecer no commit mais recente (`git log -1 --oneline`).
+- Checkpoint do perfil público já enviado: `245a3ae` (`feat: redesign public profile actions`).
+- A etapa seguinte redesenha a conversa ativa e deve aparecer no commit mais recente (`git log -1 --oneline`).
 - A árvore de trabalho deve estar limpa ao concluir este checkpoint.
 
 ## O que foi implementado
@@ -63,6 +64,15 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - Cartões explicam o estado do álbum privado e reforçam que a distância exibida é aproximada.
 - O perfil foi validado no Samsung com a conta remota, sem mudar acessos, enviar mensagem, bloquear ou denunciar.
 
+### Conversa ativa
+
+- Cabeçalho compacto com faixa de identidade, avatar/foto pública autorizada, distância aproximada, álbum e menu de segurança.
+- Tocar na identidade abre o perfil e voltar retorna à conversa.
+- O menu de álbum separa `Abrir álbum recebido` de `Liberar/Revogar meu álbum`; sem ação disponível, fica desabilitado e nenhuma miniatura privada aparece no chat.
+- Bloqueio e denúncia ficam agrupados no menu superior, sempre disponíveis e independentes de assinatura.
+- O compositor permanece fixo com o teclado, rejeita mensagem vazia, preserva o rascunho após falha e limpa somente depois da confirmação do repositório.
+- O modo remoto atualiza os acessos de álbum ao entrar no chat e continua usando as operações autoritativas existentes.
+
 ### Backend e upload
 
 - Corrigida a idempotência da reserva/finalização de upload em `SupabasePrivateAlbumGateway.kt`.
@@ -92,7 +102,7 @@ Resultados:
 
 - Build concluído com sucesso.
 - 89 testes unitários aprovados, sem falhas ou testes ignorados.
-- 25 testes instrumentados compilados; os 5 testes de smoke do protótipo e o teste da descoberta já haviam sido executados no Samsung sem falha.
+- 28 testes instrumentados compilados; os 3 novos testes da conversa foram executados no Samsung sem falha. Os 5 testes de smoke e o teste da descoberta já haviam sido executados anteriormente.
 - Lint: 0 erros e 7 avisos relacionados apenas a versões/API alvo.
 - Cenários YAML do harness validados.
 - `git diff --check` aprovado, com apenas avisos de conversão CRLF.
@@ -105,13 +115,15 @@ APK atual:
 
 SHA-256:
 
-`9999B8328D6BA6D5095C69D16D39A4318770616171F2FCB7D3E0A31FC247BDA5`
+`6F80B33E1CEB3128BC93AADA8CF8DE8A0A35FA448B8F068228F02592FC6F7ECC`
+
+A execução instrumentada isolada da conversa limpou a sessão remota do aplicativo. O APK ficou validado em modo demonstrativo com dados sintéticos; para retomar o backend real no Samsung, é necessário entrar novamente por e-mail/OTP. Não reutilizar tokens antigos.
 
 ## Próximos passos recomendados
 
-1. Reorganizar a tela de conversa para seguir a mesma hierarquia visual do novo perfil, incluindo acesso seguro ao álbum e ações de bloqueio/denúncia.
-2. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
-3. Adicionar, se desejado, reordenação/capa do álbum e busca de destinatários.
+1. Refinar a lista de conversas e o diálogo da primeira mensagem para completar a mesma linguagem visual do chat ativo.
+2. Implementar o envio moderado de fotos na conversa, hoje previsto no produto mas ainda fora do adapter Android atual.
+3. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
 4. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
 5. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.
 

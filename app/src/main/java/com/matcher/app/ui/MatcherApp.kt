@@ -232,6 +232,11 @@ fun MatcherApp(
             onReport = { targetId, reason, details ->
                 if (matcherViewModel.reportUser(targetId, reason, details)) activeConversationId = null
             },
+            onOpenProfile = {
+                selectedProfileId = demoProfiles.firstOrNull {
+                    it.id in activeConversation.participantIds
+                }?.id
+            },
         )
 
         else -> Scaffold(

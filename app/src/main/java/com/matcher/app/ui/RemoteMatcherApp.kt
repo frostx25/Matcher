@@ -413,8 +413,10 @@ private fun RemoteHome(
     val firstMessageProfile = remoteProfiles.firstOrNull { it.id == firstMessageProfileId }
     val activeConversation = state.chat.conversations.firstOrNull { it.id == activeConversationId }
 
-    LaunchedEffect(selectedProfileId) {
-        if (selectedProfileId != null) viewModel.refreshPrivateAlbumAccess()
+    LaunchedEffect(selectedProfileId, activeConversationId) {
+        if (selectedProfileId != null || activeConversationId != null) {
+            viewModel.refreshPrivateAlbumAccess()
+        }
     }
 
     LaunchedEffect(state.privateAlbum.destination) {
@@ -527,18 +529,52 @@ private fun RemoteHome(
                 )
             },
         )
-        activeConversation != null -> ConversationDetailScreen(
-            currentUserId = currentUserId,
-            conversation = activeConversation,
-            profile = remoteProfiles.firstOrNull { it.id in activeConversation.participantIds },
-            errorMessage = state.errorMessage,
-            onBack = { activeConversationId = null },
-            onSendMessage = { viewModel.sendMessage(activeConversation.id, it) },
-            onBlock = { target -> viewModel.blockUser(target) { activeConversationId = null } },
-            onReport = { target, reason, details ->
-                viewModel.reportUser(target, reason, details, activeConversation.id) { activeConversationId = null }
-            },
-        )
+        activeConversation != null -> {
+            val conversationProfile = remoteProfiles.firstOrNull {
+                it.id in activeConversation.participantIds
+            }
+            val targetId = conversationProfile?.id
+                ?: activeConversation.participantIds.firstOrNull { it != currentUserId }
+            ConversationDetailScreen(
+                currentUserId = currentUserId,
+                conversation = activeConversation,
+                profile = conversationProfile,
+                errorMessage = state.errorMessage,
+                onBack = { activeConversationId = null },
+                onSendMessage = { viewModel.sendMessage(activeConversation.id, it) },
+                onBlock = { target -> viewModel.blockUser(target) { activeConversationId = null } },
+                onReport = { target, reason, details ->
+                    viewModel.reportUser(target, reason, details, activeConversation.id) {
+                        activeConversationId = null
+                    }
+                },
+                receivedPrivateAlbumAvailable = targetId != null && state.privateAlbum.sharedWithMe.any {
+                    it.ownerId == targetId
+                },
+                myPrivateAlbumAvailable = (state.privateAlbum.myAlbum?.itemCount ?: 0) > 0,
+                myPrivateAlbumShared = targetId != null && state.privateAlbum.myGrants.any {
+                    it.recipientId == targetId
+                },
+                onOpenProfile = {
+                    if (targetId != null) selectedProfileId = targetId
+                },
+                onOpenPrivateAlbum = {
+                    if (targetId != null) {
+                        viewModel.openReceivedPrivateAlbum(targetId, conversationProfile?.name ?: "Perfil")
+                    }
+                },
+                onTogglePrivateAlbumShare = {
+                    if (targetId != null) {
+                        viewModel.togglePrivateAlbumGrant(
+                            recipientId = targetId,
+                            currentlyShared = state.privateAlbum.myGrants.any {
+                                it.recipientId == targetId
+                            },
+                        )
+                    }
+                },
+            )
+        }
         else -> Scaffold(
             containerColor = Black,
             bottomBar = { BottomNavigationBar(selectedTab, onTabSelected = { selectedTab = it }) },

@@ -1,4 +1,4 @@
-version: 3
+version: 4
 domain: direct-chat
 
 scenarios:
@@ -170,3 +170,22 @@ scenarios:
     then:
       - message_delivered: false
       - conversation_visible_to_sender: false
+
+  - id: CHAT-014-active-conversation-actions
+    name: Conversa ativa mantém álbum compositor e segurança acessíveis
+    given:
+      - conversation_state: active
+      - current_user_is_participant: true
+      - other_profile_public_media_status: approved
+      - received_private_album_access: true
+      - viewer_private_album_available: true
+    when:
+      - open_active_conversation: true
+    then:
+      - back_and_public_identity_visible: true
+      - composer_visible_without_scroll: true
+      - received_album_action_separate_from_own_album_share: true
+      - block_and_report_available_from_safety_menu: true
+      - private_album_thumbnail_visible: false
+      - empty_message_send_enabled: false
+      - conversation_requires_match_or_acceptance: false
