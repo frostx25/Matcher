@@ -79,7 +79,7 @@ Metas iniciais, medidas em aparelhos Android intermediários e acompanhadas por 
 
 ### Perfil
 
-- Nome de exibição, idade declarada a partir do ano de nascimento, bio e até cinco fotos.
+- Nome de exibição, idade declarada a partir do ano de nascimento, bio e uma única foto pública de perfil.
 - Identidade de gênero com seleção múltipla e opção de autodescrição.
 - Pronomes opcionais.
 - Orientações/interesses de conexão opcionais, com explicação de visibilidade.
@@ -87,6 +87,7 @@ Metas iniciais, medidas em aparelhos Android intermediários e acompanhadas por 
 - Tipo de relacionamento, incluindo monogamia, não monogamia consensual e “prefiro não informar”.
 - Verificação 18+ opcional, iniciada depois pela aba Perfil. Somente o workflow Didit completo — documento brasileiro, prova de vida passiva e correspondência facial — concede o selo **18+ verificado**; ele não é um selo de identidade nem publica o documento.
 - A foto de perfil pode ser qualquer imagem permitida pela política de conteúdo; não precisa mostrar o rosto nem ser a selfie usada pelo Didit.
+- Somente a foto pública de perfil passa pela triagem automática de imagem. Fotos enviadas no chat e imagens do álbum privado não são encaminhadas ao classificador automático; continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.
 - Cada versão de foto começa privada em `pending`; terceiros veem um placeholder cinza. Somente `approved` fica visível a terceiros, enquanto decisões `adult` ou `abusive` mantêm a imagem privada e o placeholder.
 - Enviar uma nova versão não substitui a versão já aprovada: a imagem anterior permanece pública até a nova versão também receber `approved`.
 - Cada pessoa pode manter um álbum privado com até dez imagens, totalmente separado das fotos públicas do perfil. As imagens do álbum ficam disponíveis imediatamente após o upload, sem aprovação prévia, mas continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.

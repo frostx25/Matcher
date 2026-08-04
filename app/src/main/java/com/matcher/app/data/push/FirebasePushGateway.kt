@@ -73,6 +73,7 @@ class FirebasePushGateway(
         private const val Preferences = "matcher_push_installation"
         private const val InstallationId = "installation_id"
         private const val PermissionAsked = "notification_permission_asked"
+        const val MessageChannelId = "matcher_messages"
 
         fun isConfigured(): Boolean = listOf(
             BuildConfig.FIREBASE_API_KEY,
@@ -83,15 +84,31 @@ class FirebasePushGateway(
 
         fun initialize(context: Context): Boolean {
             if (!isConfigured()) return false
-            if (FirebaseApp.getApps(context).any { it.name == FirebaseApp.DEFAULT_APP_NAME }) return true
-            val options = FirebaseOptions.Builder()
-                .setApiKey(BuildConfig.FIREBASE_API_KEY)
-                .setApplicationId(BuildConfig.FIREBASE_APPLICATION_ID)
-                .setProjectId(BuildConfig.FIREBASE_PROJECT_ID)
-                .setGcmSenderId(BuildConfig.FIREBASE_SENDER_ID)
-                .build()
-            FirebaseApp.initializeApp(context.applicationContext, options)
+            if (FirebaseApp.getApps(context).none { it.name == FirebaseApp.DEFAULT_APP_NAME }) {
+                val options = FirebaseOptions.Builder()
+                    .setApiKey(BuildConfig.FIREBASE_API_KEY)
+                    .setApplicationId(BuildConfig.FIREBASE_APPLICATION_ID)
+                    .setProjectId(BuildConfig.FIREBASE_PROJECT_ID)
+                    .setGcmSenderId(BuildConfig.FIREBASE_SENDER_ID)
+                    .build()
+                FirebaseApp.initializeApp(context.applicationContext, options)
+            }
+            ensureNotificationChannel(context)
             return true
+        }
+
+        fun ensureNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(
+                    MessageChannelId,
+                    "Mensagens",
+                    NotificationManager.IMPORTANCE_HIGH,
+                ).apply {
+                    description = "Avisos privados de novas mensagens"
+                    enableVibration(true)
+                },
+            )
         }
 
         fun shouldRequestPermission(context: Context): Boolean =
@@ -161,13 +178,7 @@ class MatcherFirebaseMessagingService : FirebaseMessagingService() {
         ) return
 
         val manager = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(ChannelId, "Mensagens", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Avisos privados de novas mensagens"
-                },
-            )
-        }
+        FirebasePushGateway.ensureNotificationChannel(this)
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -177,8 +188,8 @@ class MatcherFirebaseMessagingService : FirebaseMessagingService() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val notification = NotificationCompat.Builder(this, ChannelId)
-            .setSmallIcon(R.drawable.ic_launcher)
+        val notification = NotificationCompat.Builder(this, FirebasePushGateway.MessageChannelId)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Matcher")
             .setContentText("Nova mensagem")
             .setAutoCancel(true)
@@ -189,7 +200,6 @@ class MatcherFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     private companion object {
-        const val ChannelId = "matcher_messages"
         val PushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 }

@@ -507,6 +507,20 @@ scenarios:
       - profile_visible_to_third_party: false
       - approved_photo_visible_to_third_party: false
 
+  - id: PHOTO-007-single-public-profile-photo
+    name: Perfil mantém somente uma foto pública e uma candidata de substituição
+    given:
+      - current_photo_version: v1
+      - current_photo_status: approved
+    when:
+      - upload_new_photo_version: v2
+    then:
+      - public_profile_photo_slots: 1
+      - pending_profile_photo_candidates: 1
+      - public_photo_version_before_approval: v1
+      - public_photo_version_after_v2_approval: v2
+      - automatic_moderation_scope: profile_photo_only
+
   - id: PROFILE-001-local-summary
     name: Perfil local exibe apenas dados fornecidos pelo usuário
     given:

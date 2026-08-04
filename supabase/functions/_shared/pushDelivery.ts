@@ -39,7 +39,10 @@ export function fcmEnvelope(item: NotificationLease): Record<string, unknown> {
       fid: item.firebaseInstallationId,
       notification: { title: "Matcher", body: "Nova mensagem" },
       data: { conversation_id: item.payload.conversation_id },
-      android: { priority: "high" },
+      android: {
+        priority: "high",
+        notification: { channel_id: "matcher_messages", sound: "default" },
+      },
     },
   };
 }

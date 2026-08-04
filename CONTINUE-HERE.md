@@ -95,10 +95,11 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - Migração `20260804160000_account_deletion_request.sql` aplicada no `Matcher Dev`, com 11/11 asserções hospedadas.
 - A exclusão de conta está disponível no Perfil, torna a conta indisponível imediatamente e agenda a limpeza física em fila privada.
 - A outbox de push usa somente `Matcher`/`Nova mensagem`; o worker FCM real ainda depende de criar e configurar o projeto Firebase e suas credenciais fora do APK.
-- A migration `20260804170000_push_delivery_and_chat_media_automation.sql` foi aplicada e registrada no `Matcher Dev`; a suíte hospedada passou com 34/34 asserções.
-- `notification-worker` e `chat-media-moderation` foram publicados com autenticação própria; sem segredo retornam `401` e, com o segredo interno mas sem credenciais de provedor, retornam `503` sanitizado sem consumir filas.
+- A migration `20260804170000_push_delivery_and_chat_media_automation.sql` foi aplicada e registrada no `Matcher Dev`; depois, `20260804180000_profile_photo_only_automation.sql` restringiu a triagem automática à única foto pública de perfil.
+- `notification-worker` e `profile-photo-moderation` estão publicados com autenticação própria; o worker antigo do chat foi removido e fotos de chat/álbum não são enviadas ao Vision.
+- A migration `20260804190000_schedule_private_workers.sql` está aplicada: os dois workers rodam a cada minuto, usando bearer criptografado no Vault, e responderam HTTP 200 no primeiro ciclo.
 - O secret `WORKER_SHARED_SECRET` foi gerado e salvo somente no Supabase. Não existe cópia no repositório.
-- O Android usa a API atual de Firebase Installation ID, registra somente contas ativas, remove o registro no logout e exibe notificação neutra. Como os quatro valores públicos do Firebase ainda não existem, o recurso permanece desabilitado com segurança no APK atual.
+- O Android usa a API atual de Firebase Installation ID, registra somente contas ativas, remove o registro no logout e exibe notificação neutra com canal de alta prioridade e ícone próprio. O push real foi validado no Samsung.
 
 ## Supabase
 

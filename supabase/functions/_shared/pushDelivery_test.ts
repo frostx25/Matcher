@@ -28,9 +28,14 @@ Deno.test("notification lease accepts only neutral payload and opaque identifier
 });
 
 Deno.test("FCM envelope never contains private message or media data", () => {
-  const text = JSON.stringify(fcmEnvelope(lease));
+  const envelope = fcmEnvelope(lease);
+  const text = JSON.stringify(envelope);
   assert(text.includes("Nova mensagem"), "neutral body");
   assert(text.includes("conversation_id"), "opaque route");
+  assert(
+    (envelope.message as Record<string, any>).android.notification.channel_id === "matcher_messages",
+    "heads-up channel",
+  );
   for (const forbidden of ["message_body", "media_path", "object_path", "sender_name"]) {
     assert(!text.includes(forbidden), `forbidden ${forbidden}`);
   }

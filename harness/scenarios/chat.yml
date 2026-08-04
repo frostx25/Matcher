@@ -222,19 +222,19 @@ scenarios:
       - selecting_photo_grants_album_access: false
       - sharing_album_sends_photo_message: false
 
-  - id: CHAT-017-photo-idempotency-and-moderation
-    name: Foto de conversa é idempotente e privada durante moderação
+  - id: CHAT-017-photo-idempotency-and-authorization
+    name: Foto de conversa é idempotente e disponível sem triagem automática
     given:
       - conversation_state: active
       - client_message_key: 70000000-0000-4000-8000-000000000001
-      - media_status: pending
+      - media_status: approved
     when:
       - repeat_same_photo_intent_twice: true
     then:
       - persisted_photo_messages: 1
-      - recipient_can_read_bytes: false
-      - sender_sees_status: pending
-      - approved_status_required_for_recipient: true
+      - recipient_can_read_bytes: true
+      - sender_sees_status: approved
+      - automatic_moderation_requested: false
 
   - id: CHAT-018-read-delivery-and-retry
     name: Leitura e retry são autoritativos
@@ -307,17 +307,17 @@ scenarios:
       - duplicate_notification_from_same_lease: false
       - provider_detail_logged: false
 
-  - id: CHAT-023-automatic-photo-triage
-    name: Triagem automática aprova somente resposta claramente segura
+  - id: CHAT-023-profile-only-automatic-photo-triage
+    name: Triagem automática nunca recebe fotos de conversa ou álbum
     given:
-      - pending_chat_photos: [clearly_safe, likely_adult, likely_violent, possible_or_unknown]
+      - valid_chat_photo: true
+      - valid_private_album_photo: true
+      - pending_profile_photo_candidate: true
     when:
-      - moderation_worker_reads_private_bytes: true
-      - google_safe_search_returns_synthetic_likelihoods: true
+      - profile_photo_moderation_worker_claims_batch: true
     then:
-      - clearly_safe_status: approved
-      - likely_adult_status: adult
-      - likely_violent_status: abusive
-      - possible_or_unknown_status: pending
-      - public_media_url_created: false
-      - raw_provider_response_persisted: false
+      - claimed_profile_photo_candidates: 1
+      - claimed_chat_photos: 0
+      - claimed_private_album_photos: 0
+      - chat_photo_available_to_authorized_participants: true
+      - private_album_photo_available_to_authorized_accounts: true

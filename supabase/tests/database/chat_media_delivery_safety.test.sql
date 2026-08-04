@@ -188,17 +188,16 @@ select results_eq(
     $$select count(*) from public.authorize_chat_media(
         (select id from photo_context)
       )$$,
-    array[0::bigint],
-    'recipient cannot authorize pending photo bytes'
+    array[1::bigint],
+    'recipient can authorize an immediately available private chat photo'
 );
 
 set local role service_role;
-select is(
-    public.moderate_chat_media(
-        (select id from photo_context), 'approved'
-    ),
-    'approved'::public.chat_media_status,
-    'service role approves a pending chat photo'
+select throws_ok(
+    $$select * from public.claim_chat_media_moderation(10)$$,
+    '42501',
+    'permission denied for function claim_chat_media_moderation',
+    'automated provider cannot claim private chat photos'
 );
 
 set local role authenticated;

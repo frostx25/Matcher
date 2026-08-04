@@ -47,7 +47,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 
 ### 3.2 Perfil
 
-- Nome de exibição, idade declarada a partir do ano de nascimento, bio e até cinco fotos.
+- Nome de exibição, idade declarada a partir do ano de nascimento, bio e uma única foto pública de perfil.
 - O perfil público de outra pessoa prioriza a foto autorizada, nome, idade, faixa de distância, intenção, bio e campos que ela decidiu publicar. Voltar e o menu de segurança permanecem sobre a área visual; `Conversar` e o acesso contextual ao álbum ficam em uma barra inferior persistente, sem exigir rolar até o fim da página.
 - O menu de segurança reúne bloqueio e denúncia sem esconder essas ações em menus de assinatura. O botão de álbum fica desabilitado quando não existe acesso recebido nem álbum próprio disponível; quando habilitado, diferencia explicitamente abrir um álbum recebido de liberar ou revogar o próprio álbum.
 - Identidade de gênero, pronomes, orientação, intenção e tipo de relacionamento como campos separados.
@@ -55,7 +55,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - A foto pode ser qualquer imagem permitida pela política de conteúdo e não precisa representar um rosto. A mídia do Didit nunca vira foto de perfil.
 - Cada versão de foto é privada enquanto estiver `pending`; terceiros recebem um placeholder cinza. Somente uma decisão `approved` torna aquela versão visível a terceiros. Decisões `adult` ou `abusive` mantêm a versão privada e o placeholder.
 - Uma nova versão fica em moderação separada e não substitui a versão aprovada atual. A troca pública ocorre somente depois de a nova versão receber `approved`; se permanecer `pending` ou receber `adult`/`abusive`, a versão aprovada anterior continua visível.
-- O contrato exige estados e efeitos consistentes de moderação, mas não pressupõe nem promete classificação automática.
+- A triagem automática cautelosa é aplicada somente à candidata da foto pública de perfil. Fotos de conversa e imagens do álbum privado nunca são encaminhadas ao classificador automático; continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.
 
 #### 3.2.1 Álbum privado
 
@@ -109,7 +109,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Texto e fotos são suportados; mídia efêmera e chamadas ficam fora do MVP.
 - O botão de mídia do compositor abre duas intenções distintas: `Selecionar foto`, para enviar uma imagem somente nesta conversa, e `Liberar meu álbum`/`Revogar meu álbum`, para controlar o acesso ao álbum privado inteiro. Abrir um álbum recebido continua sendo uma terceira ação contextual e nunca é confundido com o envio de uma foto.
 - Cada tentativa de foto recebe no cliente uma chave UUID opaca reutilizada em retry. O servidor associa essa chave, o remetente e a conversa a no máximo uma mensagem, valida o caminho privado reservado e não permite que repetições criem mensagens ou objetos duplicados.
-- Fotos de conversa começam em `pending`. O remetente vê o estado `Em análise`; o destinatário recebe somente um placeholder sem bytes. Apenas `approved` pode ser baixada pelos dois participantes. `adult`, `abusive`, `removed` e bloqueio impedem novas leituras.
+- Fotos de conversa válidas ficam disponíveis imediatamente aos dois participantes ativos, sem triagem automática. Bloqueio, suspensão, denúncia ou decisão posterior de moderação impedem novas leituras.
 - Mensagens apresentam estados locais `sending` e `failed` e estados autoritativos `sent`, `delivered` e `read`. Falha preserva a intenção e oferece reenvio manual com a mesma chave; o app nunca repete automaticamente uma foto inteira depois de resposta indeterminada.
 - Abrir a conversa marca como lidas somente as mensagens recebidas daquela conversa. A lista mostra contagem de não lidas calculada pelo servidor; Realtime apenas invalida os dados e não concede acesso.
 - Mensagens em conversas já ativas não consomem novas aberturas.
@@ -169,7 +169,7 @@ Extra e Pro aumentam acesso pago, mas não removem bloqueio, denúncia, rate lim
 
 ### BR-CHAT-05 — foto privada e idempotente
 
-Uma foto de conversa é um recurso separado do álbum. Reserva, upload e finalização usam caminho privado vinculado ao remetente, conversa e chave idempotente. O destinatário não recebe bytes antes de `approved`; bloquear, suspender, remover ou denunciar revoga a leitura imediatamente.
+Uma foto de conversa é um recurso separado do álbum. Reserva, upload e finalização usam caminho privado vinculado ao remetente, conversa e chave idempotente. A mídia válida fica disponível imediatamente aos participantes ativos, sem classificação automática; bloquear, suspender, remover ou denunciar revoga a leitura imediatamente.
 
 ### BR-CHAT-06 — leitura, silêncio e notificação privada
 
@@ -179,9 +179,9 @@ O servidor registra leitura por participante e deriva não lidas sem confiar no 
 
 IDs de instalação Firebase (FID) pertencem a uma instalação autenticada, ficam em schema privado e nunca aparecem em resposta pública, log ou analytics. O worker usa lease, retry limitado e a API HTTP v1; instalação recusada permanentemente é desativada. O Android mostra somente `Matcher` e `Nova mensagem`, e tocar na notificação abre o app sem transportar texto, foto, nome de objeto ou identidade da outra pessoa.
 
-### BR-CHAT-08 — triagem automática cautelosa de foto
+### BR-CHAT-08 — limite da triagem automática
 
-A foto pendente é lida pelo worker diretamente do bucket privado e enviada ao Google Cloud Vision SafeSearch sem URL pública. Probabilidade `LIKELY`/`VERY_LIKELY` de conteúdo adulto ou sugestivo decide `adult`; violência nesses níveis decide `abusive`. A aprovação automática só ocorre quando adulto, sugestivo e violência estão em `UNLIKELY`/`VERY_UNLIKELY`; `UNKNOWN`, `POSSIBLE`, indisponibilidade ou resposta divergente mantêm `pending` para revisão humana. O Matcher não persiste bytes, resposta bruta ou scores do provedor e nenhuma decisão do Android é aceita.
+O worker de visão reivindica exclusivamente candidatas do bucket privado `profile-photos`. Fotos de conversa e imagens do álbum privado não são enviadas ao Google Cloud Vision nem dependem de aprovação automática para ficarem disponíveis aos participantes autorizados. Denúncia, bloqueio, suspensão e moderação posterior continuam autoritativos.
 
 ### BR-LOC-01 — privacidade geográfica
 
@@ -209,7 +209,7 @@ Uma aprovação Didit altera somente o estado do selo. Conta suspensa, excluída
 
 ### BR-PHOTO-01 — visibilidade por versão
 
-Cada versão de foto possui decisão própria. `pending`, `adult` e `abusive` permanecem privadas e são representadas a terceiros por placeholder cinza; somente `approved` pode ser entregue a terceiros. A decisão descreve o efeito do processo de moderação e não implica que exista classificação automática.
+O perfil possui um único espaço de foto pública. Cada versão candidata possui decisão própria: `pending`, `adult` e `abusive` permanecem privadas e são representadas a terceiros por placeholder cinza; somente `approved` pode ocupar esse espaço e ser entregue a terceiros. A triagem automática cautelosa atua somente nessa candidata.
 
 ### BR-PHOTO-02 — substituição segura
 
@@ -270,7 +270,7 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-PHOTO-01:** qualquer imagem permitida pode ser enviada; enquanto sua versão está `pending`, ou após decisão `adult`/`abusive`, somente o titular pode acessar a mídia e terceiros recebem placeholder cinza.
 - **AC-PHOTO-02:** somente a versão `approved` é visível a terceiros, sem depender de o arquivo mostrar um rosto.
 - **AC-PHOTO-03:** uma nova versão pendente ou não aprovada não substitui a versão aprovada atual; a troca só ocorre quando a nova versão também é aprovada.
-- **AC-PHOTO-04:** os testes validam estados e visibilidade sem pressupor ou prometer que a decisão de moderação seja automatizada.
+- **AC-PHOTO-04:** existe somente uma foto pública de perfil por pessoa; a triagem automática reivindica apenas sua candidata e nunca fotos de conversa ou do álbum privado.
 - **AC-PROFILE-01:** ao abrir um perfil público, a pessoa encontra `Conversar` sem rolar, volta pelo topo e acessa bloqueio/denúncia no menu de segurança; a tela exibe somente mídia pública autorizada, campos publicados e faixa de distância aproximada.
 - **AC-PROFILE-02:** o botão contextual `Álbum` permanece junto da ação de conversa, fica desabilitado sem ação disponível e, quando habilitado, separa abrir álbum recebido de liberar/revogar o álbum próprio sem mostrar miniatura privada.
 - **AC-ALBUM-01:** titular cria somente um álbum, envia até dez imagens e consegue abri-las imediatamente sem aprovação prévia; a décima primeira é recusada pelo servidor mesmo sob concorrência.
@@ -305,12 +305,12 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-06:** bloquear e denunciar ficam disponíveis no menu de segurança; o compositor acompanha o teclado, recusa texto vazio e só limpa uma mensagem depois de o repositório confirmar o envio.
 - **AC-CHAT-07:** a lista exibe apenas conversas ativas e, quando vazia, oferece voltar à descoberta; o diálogo da primeira mensagem identifica o destinatário, mostra a quota, explica que o envio abre a conversa sem aceite e mantém o botão principal desabilitado para texto vazio.
 - **AC-CHAT-08:** o compositor oferece `Selecionar foto` e liberar/revogar o álbum como ações diferentes; selecionar foto não cria concessão de álbum e liberar o álbum não envia nem revela miniatura privada no histórico.
-- **AC-CHAT-09:** repetir a mesma chave de envio de foto produz uma única mensagem; enquanto `pending`, o destinatário não lê bytes, e somente `approved` é baixável pelos participantes ativos e não bloqueados.
+- **AC-CHAT-09:** repetir a mesma chave de envio de foto produz uma única mensagem; a mídia válida fica disponível imediatamente aos participantes ativos e não bloqueados, sem triagem automática.
 - **AC-CHAT-10:** o remetente distingue `enviando`, `enviada`, `entregue`, `lida` e `falhou`; uma falha permite retry manual sem duplicar a mensagem.
 - **AC-CHAT-11:** abrir uma conversa zera somente suas não lidas; silenciar impede a criação de novas entregas push para o participante, mas não impede novas mensagens ou a atualização por Realtime.
 - **AC-CHAT-12:** a notificação usa texto neutro e não inclui corpo de mensagem, bytes, URL, caminho de Storage ou detalhes livres; denunciar mensagem ou foto cria um caso referenciando somente IDs autorizados.
 - **AC-CHAT-13:** uma instalação autenticada registra/rotaciona seu FID sem expô-lo; o worker entrega cada outbox sob lease, desativa instalação permanentemente inválida, repete somente falha transitória e respeita o silenciamento decidido antes da criação da outbox.
-- **AC-CHAT-14:** a triagem busca somente uma foto `pending` sob lease e sem URL pública; decisão adulta/abusiva bloqueia a leitura, aprovação libera aos participantes ativos e resultado inconclusivo ou falha mantém `pending` sem retry agressivo nem score persistido.
+- **AC-CHAT-14:** o worker de visão não reivindica nem baixa fotos de conversa ou do álbum privado; somente a candidata da foto pública de perfil pode entrar na triagem automática.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.
@@ -376,7 +376,7 @@ O app mantém um repositório em memória para testes determinísticos e demonst
 - A configuração Android contém somente URL e chave publicável do projeto de desenvolvimento. Senha de banco, chave secreta e `service_role` nunca entram no APK.
 - O gateway remoto usa apenas as RPCs autorizadas para onboarding e escritas críticas; a UI não decrementa quota nem decide estado de moderação.
 - Realtime apenas invalida/recarrega dados permitidos por RLS; a autorização continua sendo decidida pelo servidor.
-- Fixtures de foto modelam versões e decisões (`pending`, `approved`, `adult`, `abusive`) sem mídia real e sem assumir a existência de classificação automática.
+- Fixtures da foto pública modelam versões e decisões (`pending`, `approved`, `adult`, `abusive`) sem mídia real; fixtures de chat e álbum validam que essas mídias não entram na triagem automática.
 - O repositório de perfil mantém identidade e preferência como estados distintos; somente a identidade visível pode compor cartões públicos e a preferência nunca sai do estado privado do próprio usuário.
 - O álbum privado não reutiliza URL/cache das fotos públicas. O cliente limpa imagens carregadas ao perder concessão, receber bloqueio/moderação ou sair da tela, e sempre trata negação do servidor como estado autoritativo.
 - Toda operação assíncrona de álbum fica vinculada à sessão e à tela que a iniciou. Voltar, sair ou trocar de conta cancela/invalida a operação, e uma resposta antiga nunca pode repopular bytes privados.

@@ -41,11 +41,11 @@ Checkpoint de 04/08/2026. O código inclui autenticação por OTP, onboarding po
 - Decidir se a próxima fase inclui múltiplos álbuns nomeados; isso exige migration e novos contratos, pois o servidor atual impõe corretamente um único álbum ativo por titular.
 - Antes de produção, criar um projeto `Matcher Prod` separado, separar builds/segredos, automatizar migrations/functions, agendar o cleanup, implementar exclusão de conta e operação de moderação, e configurar backup/restore, limites e alertas.
 
-## Checkpoint adicional — push e triagem automática (04/08/2026)
+## Checkpoint adicional — push e foto única de perfil (04/08/2026)
 
 - A migration `20260804170000_push_delivery_and_chat_media_automation.sql` está aplicada e registrada no `Matcher Dev`; 34/34 asserções pgTAP passaram no remoto.
-- `notification-worker` e `chat-media-moderation` estão publicados, com JWT legado desligado e `WORKER_SHARED_SECRET` gerado diretamente no Supabase. Sem autorização ambos retornam `401`; com o segredo e sem credenciais de provedor retornam `503` com corpo sanitizado e contagens zeradas.
+- `notification-worker` e `profile-photo-moderation` estão publicados com JWT legado desligado e `WORKER_SHARED_SECRET` rotacionado diretamente no Supabase. O antigo worker de fotos do chat foi removido.
 - O Android foi migrado para Firebase Installation ID, compilou sem APIs de token depreciadas, e o APK foi reinstalado com `-r` no Samsung sem apagar a sessão. Não houve `FATAL EXCEPTION`.
 - Seis testes Deno dos contratos de FCM/SafeSearch passaram e as duas funções passaram no type-check. O build `testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug` também passou.
-- O recurso permanece desativado no aparelho porque `FIREBASE_API_KEY`, `FIREBASE_APPLICATION_ID`, `FIREBASE_PROJECT_ID` e `FIREBASE_SENDER_ID` ainda estão vazios. Os secrets `FIREBASE_SERVICE_ACCOUNT_JSON` e `GOOGLE_CLOUD_VISION_API_KEY` também ainda não existem; nenhum agendamento foi criado para evitar invocações inúteis.
+- Firebase e Vision estão configurados. Os dois workers foram agendados a cada minuto por `pg_cron`/`pg_net`, com o bearer no Vault; o primeiro ciclo respondeu HTTP 200 e o push real apareceu no Samsung.
 - A ativação segura e os critérios de smoke estão em `docs/PUSH-AND-CHAT-MODERATION.md`.
