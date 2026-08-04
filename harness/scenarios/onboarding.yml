@@ -431,6 +431,7 @@ scenarios:
       - account_status: active
       - uploaded_image_allowed_by_content_policy: true
       - uploaded_image_contains_face: false
+      - storage_precheck_metadata: [mimetype, contentLength]
     when:
       - upload_profile_photo_version: true
     then:
@@ -441,6 +442,7 @@ scenarios:
       - third_party_placeholder: gray
       - face_required_for_profile_photo: false
       - automatic_classifier_required_by_contract: false
+      - upload_rejected_by_precheck_shape: false
 
   - id: PHOTO-002-approved-visible
     name: Somente versão aprovada fica visível a terceiros

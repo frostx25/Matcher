@@ -3,7 +3,7 @@ begin;
 set local role postgres;
 
 set local search_path = public, testing, extensions;
-select plan(39);
+select plan(40);
 
 -- Test-only access is transaction-scoped and rolled back at the end.
 grant usage on schema testing to anon, authenticated, service_role;
@@ -156,9 +156,16 @@ select lives_ok(
           '00000000-0000-0000-0000-000000000401/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1.jpg',
           auth.uid(),
           auth.uid()::text,
-          '{"size":1024,"mimetype":"image/jpeg"}'::jsonb
+          '{"contentLength":1024,"mimetype":"image/jpeg"}'::jsonb
       )$$,
-    'owner can insert one safe immutable object path'
+    'owner can insert one safe immutable object path using Storage precheck metadata'
+);
+
+select ok(
+    private.profile_photo_metadata_is_safe(
+        '{"size":1024,"mimetype":"image/jpeg"}'::jsonb
+    ),
+    'final Storage size metadata remains valid'
 );
 
 select results_eq(

@@ -98,6 +98,8 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - A migration `20260804170000_push_delivery_and_chat_media_automation.sql` foi aplicada e registrada no `Matcher Dev`; depois, `20260804180000_profile_photo_only_automation.sql` restringiu a triagem automática à única foto pública de perfil.
 - `notification-worker` e `profile-photo-moderation` estão publicados com autenticação própria; o worker antigo do chat foi removido e fotos de chat/álbum não são enviadas ao Vision.
 - A migration `20260804190000_schedule_private_workers.sql` está aplicada: os dois workers rodam a cada minuto, usando bearer criptografado no Vault, e responderam HTTP 200 no primeiro ciclo.
+- A migration `20260804200000_profile_photo_storage_upload_protocol.sql` está aplicada e registrada no `Matcher Dev`. Ela corrige a pré-checagem do upload da foto de perfil para aceitar `contentLength`; o pgTAP hospedado passou com 40/40 e um avatar sintético entrou como foto privada em análise no Samsung.
+- O processamento real do avatar permanece em retry com `VISION_INVALID_RESPONSE`: Cloud Vision e a restrição da chave estão corretos, mas o projeto Google `matcher-dev-2b0dc` não está vinculado a uma conta de faturamento. Vincular faturamento ou substituir o provedor é uma decisão pendente; não colocar a foto manualmente como aprovada.
 - O secret `WORKER_SHARED_SECRET` foi gerado e salvo somente no Supabase. Não existe cópia no repositório.
 - O Android usa a API atual de Firebase Installation ID, registra somente contas ativas, remove o registro no logout e exibe notificação neutra com canal de alta prioridade e ícone próprio. O push real foi validado no Samsung.
 

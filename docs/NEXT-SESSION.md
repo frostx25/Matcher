@@ -48,4 +48,5 @@ Checkpoint de 04/08/2026. O código inclui autenticação por OTP, onboarding po
 - O Android foi migrado para Firebase Installation ID, compilou sem APIs de token depreciadas, e o APK foi reinstalado com `-r` no Samsung sem apagar a sessão. Não houve `FATAL EXCEPTION`.
 - Seis testes Deno dos contratos de FCM/SafeSearch passaram e as duas funções passaram no type-check. O build `testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug` também passou.
 - Firebase e Vision estão configurados. Os dois workers foram agendados a cada minuto por `pg_cron`/`pg_net`, com o bearer no Vault; o primeiro ciclo respondeu HTTP 200 e o push real apareceu no Samsung.
+- Correção `20260804200000_profile_photo_storage_upload_protocol.sql` aplicada no `Matcher Dev`: a suíte hospedada passou com 40/40 e o upload real de um avatar sintético entrou como candidata privada. A decisão automática segue bloqueada por `VISION_INVALID_RESPONSE`, pois o projeto Google não possui conta de faturamento vinculada; decidir entre vincular faturamento e trocar o provedor antes de retestar a aprovação.
 - A ativação segura e os critérios de smoke estão em `docs/PUSH-AND-CHAT-MODERATION.md`.

@@ -55,6 +55,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - A foto pode ser qualquer imagem permitida pela política de conteúdo e não precisa representar um rosto. A mídia do Didit nunca vira foto de perfil.
 - Cada versão de foto é privada enquanto estiver `pending`; terceiros recebem um placeholder cinza. Somente uma decisão `approved` torna aquela versão visível a terceiros. Decisões `adult` ou `abusive` mantêm a versão privada e o placeholder.
 - Uma nova versão fica em moderação separada e não substitui a versão aprovada atual. A troca pública ocorre somente depois de a nova versão receber `approved`; se permanecer `pending` ou receber `adult`/`abusive`, a versão aprovada anterior continua visível.
+- O upload da candidata aceita a pré-checagem real do Storage com `mimetype` e `contentLength`, revalida o metadado final `size` e limita a imagem a 5 MB; nenhuma dessas etapas cria um segundo espaço público de foto.
 - A triagem automática cautelosa é aplicada somente à candidata da foto pública de perfil. Fotos de conversa e imagens do álbum privado nunca são encaminhadas ao classificador automático; continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.
 
 #### 3.2.1 Álbum privado
