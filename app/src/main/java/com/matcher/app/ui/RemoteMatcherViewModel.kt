@@ -24,6 +24,8 @@ import com.matcher.app.data.remote.SharedPrivateAlbum
 import com.matcher.app.data.remote.UpdateGenderSettingsRequest
 import com.matcher.app.data.remote.matcherCode
 import com.matcher.app.data.remote.toEmailOtpRequestFailure
+import com.matcher.app.data.push.DisabledPushGateway
+import com.matcher.app.data.push.PushGateway
 import com.matcher.app.domain.chat.ChatSnapshot
 import com.matcher.app.domain.chat.ChatDeliveryStatus
 import com.matcher.app.domain.chat.ChatMediaStatus
@@ -151,6 +153,7 @@ class RemoteMatcherViewModel(
     private val chatGateway: RemoteChatGateway,
     private val privateAlbumGateway: PrivateAlbumGateway,
     private val ageVerificationGateway: AgeVerificationGateway,
+    private val pushGateway: PushGateway = DisabledPushGateway,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(RemoteMatcherUiState())
     val uiState: StateFlow<RemoteMatcherUiState> = mutableState.asStateFlow()
@@ -1064,7 +1067,10 @@ class RemoteMatcherViewModel(
         wipePendingChatPhotos()
         closeChatPhoto()
         mutableState.update { it.copy(privateAlbum = PrivateAlbumUiState()) }
-        launchRemote { authGateway.signOut() }
+        launchRemote {
+            runCatching { pushGateway.unregister() }
+            authGateway.signOut()
+        }
     }
 
     fun deleteAccount() {
@@ -1076,6 +1082,7 @@ class RemoteMatcherViewModel(
             wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
             wipePendingChatPhotos()
             closeChatPhoto()
+            runCatching { pushGateway.unregister() }
             authGateway.signOut()
         }
     }
@@ -1195,6 +1202,7 @@ class RemoteMatcherViewModel(
                 ) false else it.ageVerificationConsentGranted,
             )
         }
+        runCatching { pushGateway.register() }
         startPrivateAlbumSummaryLoad()
         realtimeJob = viewModelScope.launch {
             try {
@@ -1703,6 +1711,7 @@ class RemoteMatcherViewModel(
         private val chatGateway: RemoteChatGateway,
         private val privateAlbumGateway: PrivateAlbumGateway,
         private val ageVerificationGateway: AgeVerificationGateway,
+        private val pushGateway: PushGateway = DisabledPushGateway,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1713,6 +1722,7 @@ class RemoteMatcherViewModel(
                 chatGateway,
                 privateAlbumGateway,
                 ageVerificationGateway,
+                pushGateway,
             ) as T
         }
     }

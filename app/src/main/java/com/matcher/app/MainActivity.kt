@@ -11,12 +11,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.matcher.app.ui.MatcherApp
 import com.matcher.app.ui.theme.MatcherTheme
+import com.matcher.app.data.push.FirebasePushGateway
 
 class MainActivity : ComponentActivity() {
     private var ageVerificationReturnSignal by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        FirebasePushGateway.initialize(applicationContext)
         recordAgeVerificationReturn(intent.data)
         enableEdgeToEdge()
         setContent {

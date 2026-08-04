@@ -1,5 +1,6 @@
 package com.matcher.app.ui
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -74,6 +75,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import com.matcher.app.data.profile.ProfilePhotoProcessor
+import com.matcher.app.data.push.FirebasePushGateway
 import com.matcher.app.data.remote.MatcherSession
 import com.matcher.app.data.remote.GenderSettings
 import com.matcher.app.data.remote.RemoteProfile
@@ -93,6 +95,9 @@ import kotlinx.coroutines.withContext
 internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
     val context = LocalContext.current
     val client = remember { SupabaseBackend.client }
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { FirebasePushGateway.markPermissionAsked(context) }
     val remoteViewModel: RemoteMatcherViewModel = viewModel(
         factory = RemoteMatcherViewModel.Factory(
             authGateway = remember(client) { SupabaseAuthGateway(client) },
@@ -100,6 +105,9 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
             chatGateway = remember(client) { SupabaseChatGateway(client) },
             privateAlbumGateway = remember(client) { SupabasePrivateAlbumGateway(client) },
             ageVerificationGateway = remember(client) { SupabaseAgeVerificationGateway(client) },
+            pushGateway = remember(client, context) {
+                FirebasePushGateway(context.applicationContext, client)
+            },
         ),
     )
     val state by remoteViewModel.uiState.collectAsState()
@@ -120,6 +128,16 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
     LaunchedEffect(ageVerificationReturnSignal, state.session) {
         if (state.session is MatcherSession.SignedIn) {
             remoteViewModel.onAgeVerificationReturn(ageVerificationReturnSignal)
+        }
+    }
+
+    LaunchedEffect(state.signedInStage, state.session) {
+        if (state.signedInStage == SignedInStage.Active &&
+            state.session is MatcherSession.SignedIn &&
+            FirebasePushGateway.shouldRequestPermission(context)
+        ) {
+            FirebasePushGateway.markPermissionAsked(context)
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 

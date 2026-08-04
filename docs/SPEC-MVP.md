@@ -175,6 +175,14 @@ Uma foto de conversa é um recurso separado do álbum. Reserva, upload e finaliz
 
 O servidor registra leitura por participante e deriva não lidas sem confiar no contador do cliente. Silenciar impede novas entradas de push para aquela pessoa, sem impedir a mensagem. Payloads de push são neutros e nunca carregam conteúdo sensível.
 
+### BR-CHAT-07 — entrega push privada e recuperável
+
+IDs de instalação Firebase (FID) pertencem a uma instalação autenticada, ficam em schema privado e nunca aparecem em resposta pública, log ou analytics. O worker usa lease, retry limitado e a API HTTP v1; instalação recusada permanentemente é desativada. O Android mostra somente `Matcher` e `Nova mensagem`, e tocar na notificação abre o app sem transportar texto, foto, nome de objeto ou identidade da outra pessoa.
+
+### BR-CHAT-08 — triagem automática cautelosa de foto
+
+A foto pendente é lida pelo worker diretamente do bucket privado e enviada ao Google Cloud Vision SafeSearch sem URL pública. Probabilidade `LIKELY`/`VERY_LIKELY` de conteúdo adulto ou sugestivo decide `adult`; violência nesses níveis decide `abusive`. A aprovação automática só ocorre quando adulto, sugestivo e violência estão em `UNLIKELY`/`VERY_UNLIKELY`; `UNKNOWN`, `POSSIBLE`, indisponibilidade ou resposta divergente mantêm `pending` para revisão humana. O Matcher não persiste bytes, resposta bruta ou scores do provedor e nenhuma decisão do Android é aceita.
+
 ### BR-LOC-01 — privacidade geográfica
 
 O backend usa região/índice espacial reduzido para descoberta. Latitude e longitude exatas, quando inevitáveis para uma operação curta, não são expostas ao usuário nem persistidas como atributo público.
@@ -301,6 +309,8 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-10:** o remetente distingue `enviando`, `enviada`, `entregue`, `lida` e `falhou`; uma falha permite retry manual sem duplicar a mensagem.
 - **AC-CHAT-11:** abrir uma conversa zera somente suas não lidas; silenciar impede a criação de novas entregas push para o participante, mas não impede novas mensagens ou a atualização por Realtime.
 - **AC-CHAT-12:** a notificação usa texto neutro e não inclui corpo de mensagem, bytes, URL, caminho de Storage ou detalhes livres; denunciar mensagem ou foto cria um caso referenciando somente IDs autorizados.
+- **AC-CHAT-13:** uma instalação autenticada registra/rotaciona seu FID sem expô-lo; o worker entrega cada outbox sob lease, desativa instalação permanentemente inválida, repete somente falha transitória e respeita o silenciamento decidido antes da criação da outbox.
+- **AC-CHAT-14:** a triagem busca somente uma foto `pending` sob lease e sem URL pública; decisão adulta/abusiva bloqueia a leitura, aprovação libera aos participantes ativos e resultado inconclusivo ou falha mantém `pending` sem retry agressivo nem score persistido.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.

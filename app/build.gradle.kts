@@ -41,6 +41,10 @@ android {
             "SUPABASE_PUBLISHABLE_KEY",
             quotedBuildConfig(matcherLocalProperties.getProperty("SUPABASE_PUBLISHABLE_KEY", "")),
         )
+        buildConfigField("String", "FIREBASE_API_KEY", quotedBuildConfig(matcherLocalProperties.getProperty("FIREBASE_API_KEY", "")))
+        buildConfigField("String", "FIREBASE_APPLICATION_ID", quotedBuildConfig(matcherLocalProperties.getProperty("FIREBASE_APPLICATION_ID", "")))
+        buildConfigField("String", "FIREBASE_PROJECT_ID", quotedBuildConfig(matcherLocalProperties.getProperty("FIREBASE_PROJECT_ID", "")))
+        buildConfigField("String", "FIREBASE_SENDER_ID", quotedBuildConfig(matcherLocalProperties.getProperty("FIREBASE_SENDER_ID", "")))
     }
 
     buildTypes {
@@ -93,6 +97,10 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:realtime-kt")
     implementation("io.github.jan-tennert.supabase:storage-kt")
     implementation("io.ktor:ktor-client-okhttp:3.4.2")
+
+    implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.firebase:firebase-installations")
 
     implementation("io.coil-kt.coil3:coil-compose:3.5.0")
     implementation("io.coil-kt.coil3:coil-network-ktor3:3.5.0")

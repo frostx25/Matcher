@@ -32,6 +32,9 @@ O cliente não grava diretamente em `conversations`, `conversation_openings`, `m
 - `report_private_album(target_album_id, ...)`: abre caso de moderação, preserva evidência pelo prazo mínimo e encerra apenas a concessão do denunciante, preservando destinatários não relacionados até uma decisão.
 - `begin_private_album_deletion(target_album_id)` e `finalize_private_album_deletion(target_album_id)`: ocultam e revogam a geração indicada primeiro; a limpeza física idempotente usa a fila privada de objetos.
 - `request_account_deletion()`: torna a conta inacessível imediatamente, fecha conversas, remove a descoberta, revoga concessões e registra uma solicitação privada para o worker de limpeza física.
+- `register_push_device(...)` e `unregister_push_device(...)`: vinculam ou desativam o Firebase Installation ID da instalação autenticada sem expor identificadores a outros usuários.
+- `claim_notification_deliveries(...)` e `complete_notification_delivery(...)`: RPCs exclusivas do `service_role` que entregam a outbox neutra por instalação com lease, limite de tentativas e backoff.
+- `claim_chat_media_moderation(...)` e `complete_chat_media_moderation(...)`: RPCs exclusivas do `service_role` que mantêm fotos pendentes privadas até aprovação automática clara ou revisão humana.
 
 No Supabase, essas funções são chamadas por `POST /rest/v1/rpc/<nome_da_função>`. Leituras usam a API PostgREST gerada e são limitadas por RLS. `messages`, `conversations` e `conversation_user_states` entram na publicação Realtime.
 
@@ -62,7 +65,8 @@ No Supabase, essas funções são chamadas por `POST /rest/v1/rpc/<nome_da_funç
 - A cota é serializada por usuário com advisory lock e consumida junto da criação da conversa.
 - Denúncias geram caso de moderação e auditoria sem copiar o texto da mensagem para logs/audit metadata.
 - O bucket `chat-media` é privado, aceita somente JPEG/PNG/WebP de até 5 MB e usa caminhos vinculados ao remetente, conversa e chave idempotente. Fotos pendentes, adultas, abusivas ou removidas não são entregues ao destinatário.
-- A outbox de notificação contém somente título neutro, `Nova mensagem` e o ID opaco da conversa. Texto, foto, URL e caminho de Storage nunca entram no payload; o worker FCM e suas credenciais ainda são infraestrutura separada.
+- A outbox de notificação contém somente título neutro, `Nova mensagem` e o ID opaco da conversa. Texto, foto, URL e caminho de Storage nunca entram no payload. O worker FCM usa FID, uma entrega privada por instalação, leases e backoff; credenciais do Firebase permanecem exclusivamente em secrets hospedados.
+- A triagem do chat aprova automaticamente apenas resultados claramente seguros do SafeSearch. Conteúdo adulto ou violento é bloqueado; resultado possível, desconhecido, incompleto ou indisponível permanece privado para revisão/retry. Resposta bruta, score, base64 e bytes não são persistidos.
 - A exclusão lógica é imediata e idempotente. A fila privada preserva o trabalho de anonimização/remoção física e permite retenções justificadas para segurança ou obrigação legal sem expor seu estado ao cliente.
 - Funções `security definer` usam `search_path` vazio e referências totalmente qualificadas.
 - Contas ainda sem onboarding, suspensas ou excluídas não conseguem consultar perfis de descoberta; conta ativa não perde acesso por estado de verificação documental.
@@ -103,6 +107,8 @@ O projeto atual é `Matcher Dev`, ref `gevdssaambgivxiqilad`, na região `sa-eas
 - A migration `20260803130000_private_album_upload_reservation_leases.sql` adiciona idempotência explícita, TTL de 30 minutos, negação de upload/finalização tardios e reaper integrado ao worker com autorização exclusiva do `service_role`. Ela está aplicada somente no `Matcher Dev` desde 04/08/2026; a assinatura idempotente, a chave obrigatória e a expiração foram conferidas no remoto, e a suíte transacional hospedada passou com 47/47 asserções. Ela não foi aplicada a produção.
 - A migration `20260804150000_chat_media_delivery_safety.sql` adiciona foto privada na conversa, idempotência, estados de envio/leitura, não lidas, silenciamento, outbox neutra e denúncia vinculada à mensagem. Está aplicada somente no `Matcher Dev` desde 04/08/2026; sua suíte hospedada passou com 25/25 asserções.
 - A migration `20260804160000_account_deletion_request.sql` adiciona exclusão lógica imediata e fila privada para limpeza física. Está aplicada somente no `Matcher Dev` desde 04/08/2026; sua suíte hospedada concluiu as 11 asserções sem falha.
+- A migration `20260804170000_push_delivery_and_chat_media_automation.sql` adiciona registro FID, entrega por dispositivo e a fila cautelosa de triagem de fotos. Está aplicada e registrada somente no `Matcher Dev` desde 04/08/2026; sua suíte hospedada passou com 34/34 asserções.
+- As Edge Functions `notification-worker` e `chat-media-moderation` estão publicadas no `Matcher Dev`, com JWT legado desligado e autenticação própria pelo secret `WORKER_SHARED_SECRET`. Chamadas públicas retornaram `401`; chamadas autenticadas chegaram ao código e retornaram `503` sanitizado porque as credenciais Firebase/Vision ainda não foram criadas. Não existe agendamento ativo nesta etapa.
 - As três Edge Functions do álbum privado — `private-album-media`, `private-album-delete` e `private-album-cleanup` — estão publicadas no `Matcher Dev` desde 03/08/2026. `private-album-media` foi republicada em 04/08/2026 com o adaptador para as chaves hospedadas atuais e a distinção entre credencial inválida e falha operacional. Antes desta publicação, seus 18 testes puros e os 7 testes do adaptador passaram, assim como o `fmt --check` e o type-check; o smoke test remoto sem sessão retornou `401 AUTH_REQUIRED` com `Cache-Control: private, no-store, max-age=0` e `Pragma: no-cache`.
 - As Edge Functions `age-verification-session` e `age-verification-webhook` foram republicadas depois da validação do workflow e dos cinco valores `DIDIT_*`; uma nova publicação deve repetir essas verificações.
 - Os dez arquivos pgTAP atuais declaram 406 asserções. As suítes novas de chat e exclusão passaram no `Matcher Dev` com 25/25 e 11/11; a suíte de leases/reaper também passou com 47/47 e a de autorização do álbum com 78/78. Para normalizar o runner hospedado, cada transação assume explicitamente `postgres`, pois a conexão chega como `cli_login_postgres` com `NOINHERIT`.
@@ -122,6 +128,8 @@ supabase functions deploy age-verification-session
 supabase functions deploy private-album-media
 supabase functions deploy private-album-delete
 supabase functions deploy private-album-cleanup
+supabase functions deploy notification-worker --no-verify-jwt
+supabase functions deploy chat-media-moderation --no-verify-jwt
 supabase db push
 supabase test db --linked
 supabase db lint --linked --schema public,private

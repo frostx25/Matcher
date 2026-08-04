@@ -23,6 +23,7 @@ import com.matcher.app.data.remote.RemoteProfile
 import com.matcher.app.data.remote.SharedPrivateAlbum
 import com.matcher.app.data.remote.GenderSettings
 import com.matcher.app.data.remote.UpdateGenderSettingsRequest
+import com.matcher.app.data.push.PushGateway
 import com.matcher.app.domain.chat.ChatSnapshot
 import com.matcher.app.domain.chat.ModerationCase
 import com.matcher.app.domain.chat.ReportReason
@@ -1341,6 +1342,26 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun activeSessionRegistersPushAndSignOutUnregistersTheInstallation() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-test"))
+        val push = FakePushGateway()
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = FakeProfileGateway(initialProfile = testProfile()),
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+            push = push,
+        )
+        advanceUntilIdle()
+        assertEquals(1, push.registerCalls)
+
+        viewModel.signOut()
+        advanceUntilIdle()
+
+        assertEquals(1, push.unregisterCalls)
+        assertEquals(MatcherSession.SignedOut, auth.session.value)
+    }
+
+    @Test
     fun diditUrlValidationRequiresExactHttpsHostAndStandardPort() {
         assertTrue(isTrustedAgeVerificationUrl("https://verify.didit.me/session/synthetic"))
         assertTrue(isTrustedAgeVerificationUrl("https://verify.didit.me:443/session/synthetic"))
@@ -1356,7 +1377,8 @@ class RemoteMatcherViewModelTest {
         chat: FakeChatGateway = FakeChatGateway(),
         albums: FakePrivateAlbumGateway = FakePrivateAlbumGateway(),
         age: FakeAgeVerificationGateway = FakeAgeVerificationGateway(onboardingRequiredSnapshot()),
-    ) = RemoteMatcherViewModel(auth, profiles, chat, albums, age)
+        push: PushGateway = FakePushGateway(),
+    ) = RemoteMatcherViewModel(auth, profiles, chat, albums, age, push)
 
     private fun activeViewModel(
         albums: FakePrivateAlbumGateway = FakePrivateAlbumGateway(),
@@ -1366,6 +1388,21 @@ class RemoteMatcherViewModelTest {
         albums = albums,
         age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
     )
+}
+
+private class FakePushGateway : PushGateway {
+    var registerCalls = 0
+    var unregisterCalls = 0
+
+    override suspend fun register(): Boolean {
+        registerCalls += 1
+        return true
+    }
+
+    override suspend fun unregister(): Boolean {
+        unregisterCalls += 1
+        return true
+    }
 }
 
 private class FakeAuthGateway(

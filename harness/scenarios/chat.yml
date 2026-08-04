@@ -1,4 +1,4 @@
-version: 6
+version: 7
 domain: direct-chat
 
 scenarios:
@@ -277,3 +277,47 @@ scenarios:
       - report_references_authorized_message_id: true
       - reported_media_hidden_for_reporter: true
       - sensitive_content_logged: false
+
+  - id: CHAT-021-fcm-private-delivery
+    name: FCM entrega somente uma notificação neutra sob lease
+    given:
+      - recipient_has_active_installation_token: true
+      - conversation_muted_by_recipient: false
+      - notification_outbox_state: pending
+    when:
+      - notification_worker_claims_with_lease: true
+      - fcm_http_v1_accepts_message: true
+    then:
+      - notification_title: Matcher
+      - notification_body: Nova mensagem
+      - notification_contains_message_or_media: false
+      - outbox_state: sent
+      - token_exposed_to_authenticated_client: false
+
+  - id: CHAT-022-fcm-invalid-token-and-retry
+    name: Token inválido é desativado e falha transitória usa backoff
+    given:
+      - one_permanently_invalid_token: true
+      - one_transient_provider_failure: true
+    when:
+      - notification_worker_processes_leased_batch: true
+    then:
+      - permanently_invalid_token_active: false
+      - transient_failure_schedules_backoff: true
+      - duplicate_notification_from_same_lease: false
+      - provider_detail_logged: false
+
+  - id: CHAT-023-automatic-photo-triage
+    name: Triagem automática aprova somente resposta claramente segura
+    given:
+      - pending_chat_photos: [clearly_safe, likely_adult, likely_violent, possible_or_unknown]
+    when:
+      - moderation_worker_reads_private_bytes: true
+      - google_safe_search_returns_synthetic_likelihoods: true
+    then:
+      - clearly_safe_status: approved
+      - likely_adult_status: adult
+      - likely_violent_status: abusive
+      - possible_or_unknown_status: pending
+      - public_media_url_created: false
+      - raw_provider_response_persisted: false

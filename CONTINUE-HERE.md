@@ -95,6 +95,10 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - Migração `20260804160000_account_deletion_request.sql` aplicada no `Matcher Dev`, com 11/11 asserções hospedadas.
 - A exclusão de conta está disponível no Perfil, torna a conta indisponível imediatamente e agenda a limpeza física em fila privada.
 - A outbox de push usa somente `Matcher`/`Nova mensagem`; o worker FCM real ainda depende de criar e configurar o projeto Firebase e suas credenciais fora do APK.
+- A migration `20260804170000_push_delivery_and_chat_media_automation.sql` foi aplicada e registrada no `Matcher Dev`; a suíte hospedada passou com 34/34 asserções.
+- `notification-worker` e `chat-media-moderation` foram publicados com autenticação própria; sem segredo retornam `401` e, com o segredo interno mas sem credenciais de provedor, retornam `503` sanitizado sem consumir filas.
+- O secret `WORKER_SHARED_SECRET` foi gerado e salvo somente no Supabase. Não existe cópia no repositório.
+- O Android usa a API atual de Firebase Installation ID, registra somente contas ativas, remove o registro no logout e exibe notificação neutra. Como os quatro valores públicos do Firebase ainda não existem, o recurso permanece desabilitado com segurança no APK atual.
 
 ## Supabase
 
@@ -116,9 +120,9 @@ Comando executado com sucesso:
 Resultados:
 
 - Build concluído com sucesso.
-- 92 testes unitários aprovados, sem falhas ou testes ignorados.
+- 93 testes unitários aprovados, sem falhas ou testes ignorados.
 - 32 testes instrumentados compilados. Os 4 testes da conversa ativa passaram no Samsung, incluindo a separação entre `Selecionar foto`, álbum e silenciamento.
-- Lint: 0 erros e 7 avisos relacionados apenas a versões/API alvo.
+- Lint: 0 erros e 11 avisos relacionados apenas a versões, API alvo e sugestões de KTX.
 - Cenários YAML do harness validados.
 - `git diff --check` aprovado, com apenas avisos de conversão CRLF.
 - APK instalado e aberto no Samsung `SM-A315G`, Android 12/API 31, serial ADB `RQ8R1075VFJ`.
@@ -130,17 +134,18 @@ APK atual:
 
 SHA-256:
 
-`BE6E8780A51D7D18B1D8545C6A8D439821F9B8E06ADF95BEEA0B3A6CCBF1B9B4`
+`0A153071F8A8639318FA2562F9B332CACE88B3CB1661D1D133E635D5D550DB33`
 
 A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preservou a sessão e a lista vazia, o retorno para `Perto` e o diálogo da primeira mensagem foram validados com o backend real. Um texto sintético foi digitado somente para conferir o teclado e cancelado sem envio.
 
 ## Próximos passos recomendados
 
-1. Integrar um worker FCM à outbox neutra quando existir um projeto Firebase separado e credenciais de servidor.
-2. Integrar o serviço de moderação que chama `moderate_chat_media`; enquanto isso, fotos novas permanecem pendentes por segurança.
-3. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
-4. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
-5. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.
+1. Criar o projeto Firebase/Google Cloud de desenvolvimento, registrar `com.matcher.app` e cadastrar os quatro valores públicos no `local.properties`.
+2. Cadastrar `FIREBASE_SERVICE_ACCOUNT_JSON` e `GOOGLE_CLOUD_VISION_API_KEY` nos secrets, republicar os workers e executar smoke tests reais.
+3. Depois dos smoke tests, agendar os dois workers sem gravar o segredo no SQL versionado; até lá, fotos novas permanecem pendentes por segurança.
+4. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
+5. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
+6. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.
 
 ## Documentos importantes
 
@@ -148,5 +153,6 @@ A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preser
 - `docs/UX-REFERENCE-ALBUMS.md` — referência funcional dos álbuns.
 - `docs/SPEC-MVP.md` — regras de negócio e critérios de aceite.
 - `supabase/README.md` — operação do backend e implantações.
+- `docs/PUSH-AND-CHAT-MODERATION.md` — arquitetura, segurança e ativação dos dois workers.
 
 Este arquivo não contém segredos nem dados pessoais.
