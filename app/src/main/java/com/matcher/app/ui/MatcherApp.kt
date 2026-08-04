@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -32,7 +33,9 @@ import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Verified
@@ -42,6 +45,8 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +70,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -347,180 +354,212 @@ internal fun ProfileDetailScreen(
 ) {
     var showBlockConfirmation by rememberSaveable { mutableStateOf(false) }
     var showReportDialog by rememberSaveable { mutableStateOf(false) }
+    var safetyMenuExpanded by rememberSaveable(profile.id) { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val windowWidthDp = (LocalWindowInfo.current.containerSize.width / density.density).toInt()
+    val heroHeight = when {
+        windowWidthDp >= 600 -> 250.dp
+        windowWidthDp >= 480 -> 330.dp
+        else -> 420.dp
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Black)
-            .verticalScroll(rememberScrollState())
-            .testTag("profile-detail-${profile.id}"),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(310.dp)
-                .background(Brush.linearGradient(profile.colors)),
-        ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(14.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.38f))
-                    .zIndex(1f)
-                    .testTag("back-profile"),
-            ) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = Color.White)
-            }
-            if (profile.avatarUrl != null) {
-                AsyncImage(
-                    model = profile.avatarUrl,
-                    contentDescription = "Foto de ${profile.name}",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Text(
-                    profile.initials,
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 64.sp,
-                    fontWeight = FontWeight.Black,
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))))
-                    .padding(start = 20.dp, end = 20.dp, top = 64.dp, bottom = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("${profile.name}, ${profile.age}", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Black)
-                if (profile.verified) {
-                    Spacer(Modifier.width(8.dp))
-                    Icon(Icons.Outlined.Verified, "Perfil verificado", tint = Pink)
-                }
-            }
-        }
-
+    Scaffold(
+        containerColor = Black,
+        bottomBar = {
+            ProfileActionBar(
+                profileId = profile.id,
+                remainingChats = remainingChats,
+                receivedPrivateAlbumAvailable = receivedPrivateAlbumAvailable,
+                myPrivateAlbumAvailable = myPrivateAlbumAvailable,
+                myPrivateAlbumShared = myPrivateAlbumShared,
+                onStartChat = onStartChat,
+                onOpenPrivateAlbum = onOpenPrivateAlbum,
+                onTogglePrivateAlbumShare = onTogglePrivateAlbumShare,
+            )
+        },
+    ) { scaffoldPadding ->
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Black)
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = scaffoldPadding.calculateBottomPadding())
+                .testTag("profile-detail-${profile.id}"),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoPill(Icons.Outlined.LocationOn, profile.distance)
-                InfoPill(Icons.Outlined.ChatBubbleOutline, profile.intent)
-            }
-            Text(profile.bio, color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, lineHeight = 23.sp)
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heroHeight)
+                    .background(Brush.linearGradient(profile.colors)),
             ) {
-                profile.tags.forEach { tag ->
-                    Box(
+                if (profile.avatarUrl != null) {
+                    AsyncImage(
+                        model = profile.avatarUrl,
+                        contentDescription = "Foto de ${profile.name}",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(
+                        profile.initials,
+                        modifier = Modifier.align(Alignment.Center),
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 64.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.12f),
+                                    Color.Transparent,
+                                    Black.copy(alpha = 0.96f),
+                                ),
+                            ),
+                        ),
+                )
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${profile.name}, ${profile.age}",
+                            color = Color.White,
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-0.6).sp,
+                        )
+                        if (profile.verified) {
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                                Icons.Outlined.Verified,
+                                "18+ verificado",
+                                tint = Pink,
+                                modifier = Modifier.size(23.dp),
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoPill(Icons.Outlined.LocationOn, profile.distance)
+                        InfoPill(Icons.Outlined.ChatBubbleOutline, profile.intent)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(12.dp)
+                        .zIndex(1f),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = onBack,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(SurfaceRaised)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .testTag("back-profile"),
                     ) {
-                        Text(tag, color = TextSecondary, fontSize = 12.sp)
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = Color.White)
+                    }
+                    Box(
+                    ) {
+                        IconButton(
+                            onClick = { safetyMenuExpanded = true },
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .testTag("profile-safety-menu-${profile.id}"),
+                        ) {
+                            Icon(Icons.Outlined.MoreVert, "Segurança e opções", tint = Color.White)
+                        }
+                        DropdownMenu(
+                            expanded = safetyMenuExpanded,
+                            onDismissRequest = { safetyMenuExpanded = false },
+                            containerColor = SurfaceRaised,
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Bloquear perfil") },
+                                leadingIcon = { Icon(Icons.Outlined.Block, null) },
+                                onClick = {
+                                    safetyMenuExpanded = false
+                                    showBlockConfirmation = true
+                                },
+                                modifier = Modifier.testTag("block-profile-${profile.id}"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Denunciar perfil") },
+                                leadingIcon = { Icon(Icons.Outlined.Flag, null) },
+                                onClick = {
+                                    safetyMenuExpanded = false
+                                    showReportDialog = true
+                                },
+                                modifier = Modifier.testTag("report-profile-${profile.id}"),
+                            )
+                        }
                     }
                 }
             }
+
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF201820))
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                Text("Distância com privacidade", color = SoftPink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Text("O Matcher mostra apenas uma faixa aproximada. Sua localização exata nunca aparece aqui.", color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
-            }
-            Button(
-                onClick = onStartChat,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .testTag("start-chat-${profile.id}"),
-                colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Icon(Icons.Outlined.ChatBubbleOutline, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Conversar", fontWeight = FontWeight.Bold)
-            }
-            Text(
-                "$remainingChats novas conversas disponíveis. A primeira mensagem abre o chat.",
-                modifier = Modifier.fillMaxWidth(),
-                color = TextSecondary,
-                fontSize = 12.sp,
-            )
-            if (receivedPrivateAlbumAvailable || myPrivateAlbumAvailable) {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("Sobre", color = SoftPink, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        profile.bio.ifBlank { "Ainda não escreveu uma apresentação." },
+                        color = if (profile.bio.isBlank()) TextSecondary else MaterialTheme.colorScheme.onBackground,
+                        fontSize = 16.sp,
+                        lineHeight = 23.sp,
+                    )
+                }
+                if (profile.tags.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        profile.tags.forEach { tag ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(SurfaceRaised)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Text(tag, color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+                if (receivedPrivateAlbumAvailable || myPrivateAlbumAvailable) {
+                    ProfileAlbumStatusCard(
+                        profileName = profile.name,
+                        receivedPrivateAlbumAvailable = receivedPrivateAlbumAvailable,
+                        myPrivateAlbumAvailable = myPrivateAlbumAvailable,
+                        myPrivateAlbumShared = myPrivateAlbumShared,
+                    )
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color(0xFF201820))
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Text(
-                        "Álbuns privados",
-                        color = SoftPink,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "O acesso é individual. Quem recebe ainda precisa abrir o conteúdo de forma explícita.",
-                        color = TextSecondary,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
-                    )
-                    if (receivedPrivateAlbumAvailable) {
-                        Button(
-                            onClick = onOpenPrivateAlbum,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("open-private-album-${profile.id}"),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SoftPink,
-                                contentColor = Black,
-                            ),
-                        ) {
-                            Text("Abrir álbum que recebi", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (myPrivateAlbumAvailable) {
-                        OutlinedButton(
-                            onClick = onTogglePrivateAlbumShare,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("toggle-private-album-${profile.id}"),
-                        ) {
-                            Text(
-                                if (myPrivateAlbumShared) {
-                                    "Revogar meu álbum"
-                                } else {
-                                    "Liberar meu álbum"
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { showBlockConfirmation = true }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.Block, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Bloquear")
-                }
-                OutlinedButton(onClick = { showReportDialog = true }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.Flag, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Denunciar")
+                    Text("Distância com privacidade", color = SoftPink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("O Matcher mostra apenas uma faixa aproximada. Sua localização exata nunca aparece aqui.", color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
         }
@@ -544,6 +583,142 @@ internal fun ProfileDetailScreen(
                 showReportDialog = false
                 onReport(reason, details)
             },
+        )
+    }
+}
+
+@Composable
+private fun ProfileActionBar(
+    profileId: String,
+    remainingChats: Int,
+    receivedPrivateAlbumAvailable: Boolean,
+    myPrivateAlbumAvailable: Boolean,
+    myPrivateAlbumShared: Boolean,
+    onStartChat: () -> Unit,
+    onOpenPrivateAlbum: () -> Unit,
+    onTogglePrivateAlbumShare: () -> Unit,
+) {
+    var albumMenuExpanded by rememberSaveable(profileId) { mutableStateOf(false) }
+    val albumActionAvailable = receivedPrivateAlbumAvailable || myPrivateAlbumAvailable
+
+    androidx.compose.material3.Surface(
+        color = Surface,
+        shadowElevation = 12.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box {
+                OutlinedButton(
+                    onClick = { albumMenuExpanded = true },
+                    enabled = albumActionAvailable,
+                    modifier = Modifier
+                        .height(54.dp)
+                        .testTag("profile-album-menu-$profileId"),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Icon(Icons.Outlined.PhotoLibrary, null, modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("Álbum", fontWeight = FontWeight.SemiBold)
+                }
+                DropdownMenu(
+                    expanded = albumMenuExpanded,
+                    onDismissRequest = { albumMenuExpanded = false },
+                    containerColor = SurfaceRaised,
+                ) {
+                    if (receivedPrivateAlbumAvailable) {
+                        DropdownMenuItem(
+                            text = { Text("Abrir álbum recebido") },
+                            leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null) },
+                            onClick = {
+                                albumMenuExpanded = false
+                                onOpenPrivateAlbum()
+                            },
+                            modifier = Modifier.testTag("open-private-album-$profileId"),
+                        )
+                    }
+                    if (myPrivateAlbumAvailable) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (myPrivateAlbumShared) {
+                                        "Revogar meu álbum"
+                                    } else {
+                                        "Liberar meu álbum"
+                                    },
+                                )
+                            },
+                            leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null) },
+                            onClick = {
+                                albumMenuExpanded = false
+                                onTogglePrivateAlbumShare()
+                            },
+                            modifier = Modifier.testTag("toggle-private-album-$profileId"),
+                        )
+                    }
+                }
+            }
+            Button(
+                onClick = onStartChat,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(54.dp)
+                    .testTag("start-chat-$profileId"),
+                colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Icon(Icons.Outlined.ChatBubbleOutline, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Conversar · $remainingChats", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileAlbumStatusCard(
+    profileName: String,
+    receivedPrivateAlbumAvailable: Boolean,
+    myPrivateAlbumAvailable: Boolean,
+    myPrivateAlbumShared: Boolean,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(SurfaceRaised)
+            .padding(16.dp)
+            .testTag("profile-album-status"),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text("Álbum privado", color = SoftPink, fontWeight = FontWeight.Bold)
+        if (receivedPrivateAlbumAvailable) {
+            Text(
+                "$profileName liberou um álbum para você.",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 13.sp,
+            )
+        }
+        if (myPrivateAlbumAvailable) {
+            Text(
+                if (myPrivateAlbumShared) {
+                    "Seu álbum está liberado para este perfil."
+                } else {
+                    "Seu álbum ainda não está liberado para este perfil."
+                },
+                color = TextSecondary,
+                fontSize = 13.sp,
+            )
+        }
+        Text(
+            "Use Álbum na barra abaixo para abrir ou mudar o acesso.",
+            color = TextSecondary,
+            fontSize = 11.sp,
         )
     }
 }

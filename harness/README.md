@@ -40,7 +40,7 @@ O harness deve funcionar com dados sintéticos, sem depender de uma VM de produ�
 Os cenários executáveis ficam em:
 
 - `harness/scenarios/onboarding.yml` (versão 14): autenticação por e-mail com single-flight, cooldown e timeout indeterminado, onboarding 18+, compatibilidade segura, identidade de gênero, selo opcional, precedência da moderação e visibilidade/versionamento de foto pública.
-- `harness/scenarios/discovery.yml` (versão 3): preferência privada multi-seleção, filtragem autoritativa, bloqueio de leitura ampla, troca segura de cursor, privacidade, migração e composição compacta da tela inicial com três colunas no retrato e adaptação para telas largas.
+- `harness/scenarios/discovery.yml` (versão 4): preferência privada multi-seleção, filtragem autoritativa, bloqueio de leitura ampla, troca segura de cursor, privacidade, migração, grade responsiva e ações persistentes do perfil público.
 - `harness/scenarios/private-album.yml` (versão 9): limite, reserva e finalização idempotentes com retry de resposta indeterminada e TTL/reaper, tratamento defensivo de item já concluído, cleanup após cancelamento, upload real do Storage, autenticação e classificação de falhas da mídia, recuperação de prévia, acesso, concorrência, concessão, revogação individual/em lote, bloqueio, denúncia, moderação, proteção de mídia e limpeza.
 - `harness/scenarios/chat.yml`: abertura direta e quota de novas conversas.
 

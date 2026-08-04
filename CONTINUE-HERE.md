@@ -19,32 +19,9 @@ Texto sugerido para o novo chat:
 ## Estado do Git
 
 - Branch: `main`
-- Commit atual: `ab22a08`
-- Há mudanças locais ainda **não commitadas e não enviadas ao GitHub**.
-- Não apagar esta pasta antes de fazer commit e push, pois excluir apenas o chat não salva essas alterações remotamente.
-
-Arquivos modificados:
-
-- `app/src/androidTest/java/com/matcher/app/PrivateAlbumScreensTest.kt`
-- `app/src/main/java/com/matcher/app/data/remote/SupabasePrivateAlbumGateway.kt`
-- `app/src/main/java/com/matcher/app/ui/PrivateAlbumScreens.kt`
-- `app/src/main/java/com/matcher/app/ui/MatcherApp.kt`
-- `app/src/main/java/com/matcher/app/ui/RemoteMatcherApp.kt`
-- `app/src/main/java/com/matcher/app/ui/RemoteMatcherViewModel.kt`
-- `app/src/test/java/com/matcher/app/data/remote/PrivateAlbumUploadCleanupTest.kt`
-- `app/src/test/java/com/matcher/app/ui/RemoteMatcherViewModelTest.kt`
-- `docs/NEXT-SESSION.md`
-- `docs/SPEC-MVP.md`
-- `harness/README.md`
-- `harness/scenarios/discovery.yml`
-- `harness/scenarios/private-album.yml`
-- `supabase/README.md`
-
-Arquivo novo:
-
-- `docs/UX-REFERENCE-ALBUMS.md`
-- `app/src/androidTest/java/com/matcher/app/RemoteDiscoveryScreenTest.kt`
-- `app/src/test/java/com/matcher/app/ui/RemoteDiscoveryLayoutTest.kt`
+- Checkpoint de descoberta/álbuns já enviado: `d9b8f2b` (`feat: refine discovery and private albums`).
+- A etapa seguinte redesenha o perfil público e deve aparecer no commit mais recente (`git log -1 --oneline`).
+- A árvore de trabalho deve estar limpa ao concluir este checkpoint.
 
 ## O que foi implementado
 
@@ -77,6 +54,15 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - O componente é compartilhado pelo backend remoto e pelo modo de demonstração.
 - Novo teste Compose confirma as três colunas e as ações do cabeçalho.
 
+### Perfil público
+
+- Hero alto com mídia pública autorizada, nome, idade, distância aproximada e intenção.
+- Ações persistentes na base para `Álbum` e `Conversar`, sem exigir aceite prévio para iniciar a conversa.
+- O menu de álbum separa claramente `Abrir álbum recebido` de `Liberar/Revogar meu álbum`.
+- Bloqueio e denúncia permanecem no menu de segurança no topo.
+- Cartões explicam o estado do álbum privado e reforçam que a distância exibida é aproximada.
+- O perfil foi validado no Samsung com a conta remota, sem mudar acessos, enviar mensagem, bloquear ou denunciar.
+
 ### Backend e upload
 
 - Corrigida a idempotência da reserva/finalização de upload em `SupabasePrivateAlbumGateway.kt`.
@@ -106,7 +92,7 @@ Resultados:
 
 - Build concluído com sucesso.
 - 89 testes unitários aprovados, sem falhas ou testes ignorados.
-- 23 testes instrumentados compilados; os 5 testes de smoke do protótipo e o novo teste da descoberta foram executados no Samsung sem falha.
+- 25 testes instrumentados compilados; os 5 testes de smoke do protótipo e o teste da descoberta já haviam sido executados no Samsung sem falha.
 - Lint: 0 erros e 7 avisos relacionados apenas a versões/API alvo.
 - Cenários YAML do harness validados.
 - `git diff --check` aprovado, com apenas avisos de conversão CRLF.
@@ -119,13 +105,13 @@ APK atual:
 
 SHA-256:
 
-`73020AA474E22A08ED4F30F29FBBB308AFA06ADA91A695F56B1FDE7AE7B32DD4`
+`9999B8328D6BA6D5095C69D16D39A4318770616171F2FCB7D3E0A31FC247BDA5`
 
 ## Próximos passos recomendados
 
-1. Revisar as mudanças locais, criar um commit e enviar para o GitHub antes de apagar a pasta local.
+1. Reorganizar a tela de conversa para seguir a mesma hierarquia visual do novo perfil, incluindo acesso seguro ao álbum e ações de bloqueio/denúncia.
 2. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
-3. Adicionar, se desejado, atalho de liberação do álbum dentro da conversa, reordenação/capa do álbum e busca de destinatários.
+3. Adicionar, se desejado, reordenação/capa do álbum e busca de destinatários.
 4. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
 5. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.
 

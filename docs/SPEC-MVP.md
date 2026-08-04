@@ -48,6 +48,8 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 ### 3.2 Perfil
 
 - Nome de exibição, idade declarada a partir do ano de nascimento, bio e até cinco fotos.
+- O perfil público de outra pessoa prioriza a foto autorizada, nome, idade, faixa de distância, intenção, bio e campos que ela decidiu publicar. Voltar e o menu de segurança permanecem sobre a área visual; `Conversar` e o acesso contextual ao álbum ficam em uma barra inferior persistente, sem exigir rolar até o fim da página.
+- O menu de segurança reúne bloqueio e denúncia sem esconder essas ações em menus de assinatura. O botão de álbum fica desabilitado quando não existe acesso recebido nem álbum próprio disponível; quando habilitado, diferencia explicitamente abrir um álbum recebido de liberar ou revogar o próprio álbum.
 - Identidade de gênero, pronomes, orientação, intenção e tipo de relacionamento como campos separados.
 - Cada campo possui visibilidade configurável; o usuário pode preferir não informar.
 - A foto pode ser qualquer imagem permitida pela política de conteúdo e não precisa representar um rosto. A mídia do Didit nunca vira foto de perfil.
@@ -240,6 +242,8 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-PHOTO-02:** somente a versão `approved` é visível a terceiros, sem depender de o arquivo mostrar um rosto.
 - **AC-PHOTO-03:** uma nova versão pendente ou não aprovada não substitui a versão aprovada atual; a troca só ocorre quando a nova versão também é aprovada.
 - **AC-PHOTO-04:** os testes validam estados e visibilidade sem pressupor ou prometer que a decisão de moderação seja automatizada.
+- **AC-PROFILE-01:** ao abrir um perfil público, a pessoa encontra `Conversar` sem rolar, volta pelo topo e acessa bloqueio/denúncia no menu de segurança; a tela exibe somente mídia pública autorizada, campos publicados e faixa de distância aproximada.
+- **AC-PROFILE-02:** o botão contextual `Álbum` permanece junto da ação de conversa, fica desabilitado sem ação disponível e, quando habilitado, separa abrir álbum recebido de liberar/revogar o álbum próprio sem mostrar miniatura privada.
 - **AC-ALBUM-01:** titular cria somente um álbum, envia até dez imagens e consegue abri-las imediatamente sem aprovação prévia; a décima primeira é recusada pelo servidor mesmo sob concorrência.
 - **AC-ALBUM-02:** conta sem concessão não lista metadados nem lê bytes; conceder acesso a uma pessoa não libera para nenhuma outra.
 - **AC-ALBUM-03:** revogar acesso impede novas listagens/downloads e remove o conteúdo da tela do destinatário, sem afetar concessões de outras pessoas.

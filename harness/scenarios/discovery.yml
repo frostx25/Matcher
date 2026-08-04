@@ -1,4 +1,4 @@
-version: 3
+version: 4
 domain: gender-discovery-preferences
 
 scenarios:
@@ -160,3 +160,23 @@ scenarios:
       - exact_distance_visible: false
       - private_preference_visible: false
       - unapproved_profile_media_visible: false
+
+  - id: DISC-UI-012-public-profile-actions
+    name: Perfil público mantém conversa álbum e segurança acessíveis
+    given:
+      - viewer: user-free
+      - candidate: user-target-01
+      - candidate_distance_precision: approximate_band
+      - candidate_public_photo_status: approved
+      - received_private_album_access: true
+      - viewer_private_album_available: true
+    when:
+      - open_candidate_profile: true
+    then:
+      - conversation_action_visible_without_scroll: true
+      - album_action_visible_without_scroll: true
+      - received_album_action_separate_from_own_album_share: true
+      - block_and_report_available_from_safety_menu: true
+      - exact_distance_visible: false
+      - private_album_thumbnail_visible: false
+      - conversation_requires_match_or_acceptance: false

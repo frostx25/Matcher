@@ -7,7 +7,6 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.domain.profile.LocalProfileStore
@@ -46,7 +45,7 @@ class MatcherSmokeTest {
         completeOnboarding()
         composeRule.onNodeWithTag("profile-maya").performClick()
         composeRule.onNodeWithTag("profile-detail-maya").assertIsDisplayed()
-        composeRule.onNodeWithTag("start-chat-maya").performScrollTo().performClick()
+        composeRule.onNodeWithTag("start-chat-maya").performClick()
         composeRule.onNodeWithTag("chat-message-input").performTextInput("Oi, tudo bem?")
         composeRule.onNodeWithTag("send-first-message").performClick()
 
