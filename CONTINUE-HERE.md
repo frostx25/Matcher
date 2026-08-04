@@ -96,10 +96,11 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - A exclusão de conta está disponível no Perfil, torna a conta indisponível imediatamente e agenda a limpeza física em fila privada.
 - A outbox de push usa somente `Matcher`/`Nova mensagem`; o worker FCM real ainda depende de criar e configurar o projeto Firebase e suas credenciais fora do APK.
 - A migration `20260804170000_push_delivery_and_chat_media_automation.sql` foi aplicada e registrada no `Matcher Dev`; depois, `20260804180000_profile_photo_only_automation.sql` restringiu a triagem automática à única foto pública de perfil.
-- `notification-worker` e `profile-photo-moderation` estão publicados com autenticação própria; o worker antigo do chat foi removido e fotos de chat/álbum não são enviadas ao Vision.
+- `notification-worker` e `profile-photo-moderation` estão publicados com autenticação própria; o worker antigo do chat foi removido e fotos de chat/álbum não são enviadas ao provedor automático.
 - A migration `20260804190000_schedule_private_workers.sql` está aplicada: os dois workers rodam a cada minuto, usando bearer criptografado no Vault, e responderam HTTP 200 no primeiro ciclo.
 - A migration `20260804200000_profile_photo_storage_upload_protocol.sql` está aplicada e registrada no `Matcher Dev`. Ela corrige a pré-checagem do upload da foto de perfil para aceitar `contentLength`; o pgTAP hospedado passou com 40/40 e um avatar sintético entrou como foto privada em análise no Samsung.
-- O processamento real do avatar permanece em retry com `VISION_INVALID_RESPONSE`: Cloud Vision e a restrição da chave estão corretos, mas o projeto Google `matcher-dev-2b0dc` não está vinculado a uma conta de faturamento. Vincular faturamento ou substituir o provedor é uma decisão pendente; não colocar a foto manualmente como aprovada.
+- A migration `20260804210000_openai_profile_photo_moderation.sql` está aplicada e registrada. A moderação foi migrada para o endpoint gratuito `omni-moderation-latest`, o worker foi republicado e a candidata real terminou `approved/completed`, sem erro e com avatar público. A suíte hospedada atualizada concluiu 38/38.
+- O secret `OPENAI_API_KEY` foi rotacionado e salvo diretamente no Supabase; não existe cópia no repositório nem no APK. A chave publicada anteriormente no chat não foi usada.
 - O secret `WORKER_SHARED_SECRET` foi gerado e salvo somente no Supabase. Não existe cópia no repositório.
 - O Android usa a API atual de Firebase Installation ID, registra somente contas ativas, remove o registro no logout e exibe notificação neutra com canal de alta prioridade e ícone próprio. O push real foi validado no Samsung.
 
@@ -143,9 +144,9 @@ A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preser
 
 ## Próximos passos recomendados
 
-1. Criar o projeto Firebase/Google Cloud de desenvolvimento, registrar `com.matcher.app` e cadastrar os quatro valores públicos no `local.properties`.
-2. Cadastrar `FIREBASE_SERVICE_ACCOUNT_JSON` e `GOOGLE_CLOUD_VISION_API_KEY` nos secrets, republicar os workers e executar smoke tests reais.
-3. Depois dos smoke tests, agendar os dois workers sem gravar o segredo no SQL versionado; até lá, fotos novas permanecem pendentes por segurança.
+1. Confirmar no Samsung que a foto recém-aprovada aparece após atualizar a tela de Perfil/Descoberta.
+2. Implementar a fila operacional de revisão humana para categorias sinalizadas que não mapeiam diretamente para `adult` ou `abusive`.
+3. Monitorar taxa de retry/429 e volume diário do endpoint de moderação sem registrar imagem, caminho privado ou resposta bruta.
 4. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
 5. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
 6. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.

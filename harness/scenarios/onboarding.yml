@@ -441,7 +441,8 @@ scenarios:
       - third_party_media_visible: false
       - third_party_placeholder: gray
       - face_required_for_profile_photo: false
-      - automatic_classifier_required_by_contract: false
+      - automatic_classifier_scope: profile_photo_only
+      - automatic_classifier_provider: openai_omni_moderation
       - upload_rejected_by_precheck_shape: false
 
   - id: PHOTO-002-approved-visible
@@ -522,6 +523,25 @@ scenarios:
       - public_photo_version_before_approval: v1
       - public_photo_version_after_v2_approval: v2
       - automatic_moderation_scope: profile_photo_only
+
+  - id: PHOTO-008-openai-normalized-decisions
+    name: OpenAI produz somente decisão normalizada sem persistir conteúdo sensível
+    given:
+      - photo_moderation_status: pending
+      - provider_model: omni-moderation-latest
+      - provider_endpoint: /v1/moderations
+    when:
+      - authoritative_provider_response_received: true
+    then:
+      - sexual_category_true_maps_to: adult
+      - sexual_minors_category_true_maps_to: abusive
+      - violence_or_graphic_category_true_maps_to: abusive
+      - other_flagged_category_maps_to: review
+      - unflagged_valid_response_maps_to: approved
+      - malformed_or_unavailable_response_maps_to: retry
+      - raw_response_persisted: false
+      - category_scores_logged: false
+      - age_verification_granted: false
 
   - id: PROFILE-001-local-summary
     name: Perfil local exibe apenas dados fornecidos pelo usuário

@@ -1,7 +1,7 @@
 begin;
 set local role postgres;
 set local search_path = public, testing, extensions;
-select plan(35);
+select plan(38);
 grant usage on schema testing to anon, authenticated, service_role;
 
 select has_table('private', 'push_devices', 'push tokens live in private schema');
@@ -191,14 +191,38 @@ select is(
 select is(
     public.complete_profile_photo_moderation(
         (select profile_id from claimed_media),
-        (select lease_token from claimed_media), 'review', null
+        (select lease_token from claimed_media), 'retry', 'MODERATION_INVALID_RESPONSE'
+    ),
+    true,
+    'invalid provider response safely requeues the private candidate'
+);
+set local role postgres;
+select results_eq(
+    $$select automation_state, automation_error_code
+        from private.profile_photo_submissions
+       where user_id = (select profile_id from claimed_media)$$,
+    $$values ('queued'::text, 'MODERATION_INVALID_RESPONSE'::text)$$,
+    'retry persists only a provider-neutral error code'
+);
+update private.profile_photo_submissions
+set automation_next_attempt_at = now()
+where user_id = (select profile_id from claimed_media);
+set local role service_role;
+set local "request.jwt.claim.role" = 'service_role';
+create temporary table retried_media as
+select * from public.claim_profile_photo_moderation(10);
+select results_eq('select count(*) from retried_media', array[1::bigint], 'due moderation retry can be reclaimed once');
+select is(
+    public.complete_profile_photo_moderation(
+        (select profile_id from retried_media),
+        (select lease_token from retried_media), 'review', null
     ),
     true,
     'inconclusive result moves only the profile photo to human review'
 );
 set local role postgres;
 select results_eq(
-    $$select status::text, automation_state from private.profile_photo_submissions where user_id = (select profile_id from claimed_media)$$,
+    $$select status::text, automation_state from private.profile_photo_submissions where user_id = (select profile_id from retried_media)$$,
     $$values ('pending'::text, 'review'::text)$$,
     'review keeps the profile candidate private and pending'
 );

@@ -54,6 +54,8 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Cada campo possui visibilidade configurável; o usuário pode preferir não informar.
 - A foto pode ser qualquer imagem permitida pela política de conteúdo e não precisa representar um rosto. A mídia do Didit nunca vira foto de perfil.
 - Cada versão de foto é privada enquanto estiver `pending`; terceiros recebem um placeholder cinza. Somente uma decisão `approved` torna aquela versão visível a terceiros. Decisões `adult` ou `abusive` mantêm a versão privada e o placeholder.
+- A triagem da única foto pública usa exclusivamente o endpoint gratuito de moderação de imagens da OpenAI com `omni-moderation-latest`. `sexual` classifica a candidata como `adult`; `sexual/minors`, `violence` ou `violence/graphic` classificam como `abusive`; outra categoria sinalizada encaminha para revisão humana. Resposta incompleta, inválida ou indisponível mantém a mídia privada e entra em retry limitado.
+- A decisão normalizada é autoritativa para a visibilidade da foto, mas não comprova idade nem identidade. Resposta bruta, scores, bytes, base64 e chave do provedor não são persistidos nem registrados em logs.
 - Uma nova versão fica em moderação separada e não substitui a versão aprovada atual. A troca pública ocorre somente depois de a nova versão receber `approved`; se permanecer `pending` ou receber `adult`/`abusive`, a versão aprovada anterior continua visível.
 - O upload da candidata aceita a pré-checagem real do Storage com `mimetype` e `contentLength`, revalida o metadado final `size` e limita a imagem a 5 MB; nenhuma dessas etapas cria um segundo espaço público de foto.
 - A triagem automática cautelosa é aplicada somente à candidata da foto pública de perfil. Fotos de conversa e imagens do álbum privado nunca são encaminhadas ao classificador automático; continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.
@@ -182,7 +184,7 @@ IDs de instalação Firebase (FID) pertencem a uma instalação autenticada, fic
 
 ### BR-CHAT-08 — limite da triagem automática
 
-O worker de visão reivindica exclusivamente candidatas do bucket privado `profile-photos`. Fotos de conversa e imagens do álbum privado não são enviadas ao Google Cloud Vision nem dependem de aprovação automática para ficarem disponíveis aos participantes autorizados. Denúncia, bloqueio, suspensão e moderação posterior continuam autoritativos.
+O worker de moderação reivindica exclusivamente candidatas do bucket privado `profile-photos` e envia seus bytes, somente em memória e sem URL pública, ao endpoint `/v1/moderations` da OpenAI com `omni-moderation-latest`. Fotos de conversa e imagens do álbum privado não são enviadas ao provedor nem dependem de aprovação automática para ficarem disponíveis aos participantes autorizados. A classificação não concede selo 18+; denúncia, bloqueio, suspensão e moderação posterior continuam autoritativos.
 
 ### BR-LOC-01 — privacidade geográfica
 
