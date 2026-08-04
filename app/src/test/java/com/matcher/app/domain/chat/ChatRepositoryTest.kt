@@ -141,6 +141,39 @@ class ChatRepositoryTest {
     }
 
     @Test
+    fun selectedPhotoCreatesChatMediaWithoutGrantingAnAlbum() {
+        val repository = InMemoryChatRepository(initialQuota = 5)
+        val conversation = (repository.startConversation("user-free", "maya", "Oi") as StartConversationResult.Created)
+            .conversation
+
+        val result = repository.sendPhoto("user-free", conversation.id, byteArrayOf(1, 2, 3))
+
+        assertTrue(result is SendMessageResult.Sent)
+        val photo = repository.snapshot("maya").conversations.single().messages.last()
+        assertEquals(ChatMessageKind.Photo, photo.kind)
+        assertEquals(ChatMediaStatus.Pending, photo.mediaStatus)
+    }
+
+    @Test
+    fun specificMessageReportKeepsOnlyOpaqueMessageReference() {
+        val repository = InMemoryChatRepository(initialQuota = 5)
+        val conversation = (repository.startConversation("sam", "user-free", "Oi") as StartConversationResult.Created)
+            .conversation
+        val messageId = conversation.messages.single().id
+
+        val result = repository.reportUser(
+            actorId = "user-free",
+            targetUserId = "sam",
+            reason = ReportReason.Harassment,
+            details = "Fixture sintética",
+            relatedMessageId = messageId,
+        )
+
+        assertEquals(messageId, result?.relatedMessageId)
+        assertTrue(repository.snapshot("user-free").conversations.isEmpty())
+    }
+
+    @Test
     fun concurrentOpeningsCannotSpendOneQuotaTwice() {
         val repository = InMemoryChatRepository(initialQuota = 1)
         val start = CountDownLatch(1)

@@ -11,7 +11,10 @@ O cliente não grava diretamente em `conversations`, `conversation_openings`, `m
 - `age-verification-session`: cria no servidor uma sessão Didit `user` no workflow publicado, com `vendor_data` pseudônimo estável por usuário e referência única de tentativa separada; nenhuma chave do provedor chega ao APK.
 - `age-verification-webhook`: valida a assinatura Didit, usa a notificação apenas como gatilho, consulta a decisão diretamente no provedor e chama a finalização reservada ao `service_role` somente após validar todos os controles.
 - `start_conversation(recipient_id, first_message)`: cria uma conversa ativa e a primeira mensagem na mesma transação. Se o par já existir, reutiliza a conversa sem consumir outra abertura.
-- `send_message(conversation_id, message_body)`: envia em uma conversa ativa sem consumir quota.
+- `send_message(conversation_id, message_body, client_message_id)`: envia texto de forma idempotente em uma conversa ativa sem consumir quota; o overload legado de dois argumentos continua compatível.
+- `send_photo_message(...)` e `authorize_chat_media(target_message_id)`: registram uma foto privada vinculada à conversa e só entregam seus bytes após decisão `approved`, revalidando participantes, bloqueio e estado das contas.
+- `list_chat_messages(...)`, `mark_chat_delivered()`, `mark_conversation_read(...)` e `get_chat_user_states()`: mantêm entrega, leitura e não lidas como estado autoritativo do servidor.
+- `set_conversation_muted(...)`: silencia somente a entrega push daquele participante, sem impedir mensagens ou Realtime.
 - `get_chat_quota()`: retorna limite, uso, saldo e próxima renovação da janela móvel de 24 horas.
 - `block_user(blocked_user_id)`: interrompe o contato nos dois sentidos e oculta a conversa.
 - `report_user(...)`: cria denúncia, caso de moderação e bloqueio imediato.
@@ -28,8 +31,9 @@ O cliente não grava diretamente em `conversations`, `conversation_openings`, `m
 - `private-album-delete`: recebe exclusivamente `item_id` ou `album_id`, marca e oculta pelo JWT do dono e só então remove do Storage pelo `service_role`, sem devolver caminhos nem exigir `SELECT` no bucket.
 - `report_private_album(target_album_id, ...)`: abre caso de moderação, preserva evidência pelo prazo mínimo e encerra apenas a concessão do denunciante, preservando destinatários não relacionados até uma decisão.
 - `begin_private_album_deletion(target_album_id)` e `finalize_private_album_deletion(target_album_id)`: ocultam e revogam a geração indicada primeiro; a limpeza física idempotente usa a fila privada de objetos.
+- `request_account_deletion()`: torna a conta inacessível imediatamente, fecha conversas, remove a descoberta, revoga concessões e registra uma solicitação privada para o worker de limpeza física.
 
-No Supabase, essas funções são chamadas por `POST /rest/v1/rpc/<nome_da_função>`. Leituras usam a API PostgREST gerada e são limitadas por RLS. `messages` e `conversations` entram na publicação Realtime.
+No Supabase, essas funções são chamadas por `POST /rest/v1/rpc/<nome_da_função>`. Leituras usam a API PostgREST gerada e são limitadas por RLS. `messages`, `conversations` e `conversation_user_states` entram na publicação Realtime.
 
 ## Estrutura
 
@@ -57,6 +61,9 @@ No Supabase, essas funções são chamadas por `POST /rest/v1/rpc/<nome_da_funç
 - Conversas e mensagens só são legíveis pelos dois participantes enquanto o contato estiver ativo e sem bloqueio.
 - A cota é serializada por usuário com advisory lock e consumida junto da criação da conversa.
 - Denúncias geram caso de moderação e auditoria sem copiar o texto da mensagem para logs/audit metadata.
+- O bucket `chat-media` é privado, aceita somente JPEG/PNG/WebP de até 5 MB e usa caminhos vinculados ao remetente, conversa e chave idempotente. Fotos pendentes, adultas, abusivas ou removidas não são entregues ao destinatário.
+- A outbox de notificação contém somente título neutro, `Nova mensagem` e o ID opaco da conversa. Texto, foto, URL e caminho de Storage nunca entram no payload; o worker FCM e suas credenciais ainda são infraestrutura separada.
+- A exclusão lógica é imediata e idempotente. A fila privada preserva o trabalho de anonimização/remoção física e permite retenções justificadas para segurança ou obrigação legal sem expor seu estado ao cliente.
 - Funções `security definer` usam `search_path` vazio e referências totalmente qualificadas.
 - Contas ainda sem onboarding, suspensas ou excluídas não conseguem consultar perfis de descoberta; conta ativa não perde acesso por estado de verificação documental.
 - O catálogo versionado `gender_options` usa IDs estáveis; identidade e preferência são arrays distintos em tabelas `private`. Perfis legados recebem exclusivamente `prefer_not_to_say`, oculto, e preferência `everyone`, sem inferência por nome, bio, foto ou conversa.
@@ -94,9 +101,11 @@ O projeto atual é `Matcher Dev`, ref `gevdssaambgivxiqilad`, na região `sa-eas
 - A migration `20260803110000_enable_pgtap_validation.sql` habilita a validação pgTAP no projeto hospedado e está aplicada no `Matcher Dev` desde 03/08/2026.
 - A migration `20260803120000_private_album_storage_upload_protocol.sql` alinha a policy do álbum ao protocolo real do Storage (`contentLength` na pré-checagem e `size` na conclusão) e limita o `SELECT` de retorno à operação `storage.object.upload`. Ela está aplicada e registrada no `Matcher Dev` desde 03/08/2026; listagem, download direto, URL assinada, `UPDATE` e `DELETE` continuam sem policy para usuários autenticados.
 - A migration `20260803130000_private_album_upload_reservation_leases.sql` adiciona idempotência explícita, TTL de 30 minutos, negação de upload/finalização tardios e reaper integrado ao worker com autorização exclusiva do `service_role`. Ela está aplicada somente no `Matcher Dev` desde 04/08/2026; a assinatura idempotente, a chave obrigatória e a expiração foram conferidas no remoto, e a suíte transacional hospedada passou com 47/47 asserções. Ela não foi aplicada a produção.
+- A migration `20260804150000_chat_media_delivery_safety.sql` adiciona foto privada na conversa, idempotência, estados de envio/leitura, não lidas, silenciamento, outbox neutra e denúncia vinculada à mensagem. Está aplicada somente no `Matcher Dev` desde 04/08/2026; sua suíte hospedada passou com 25/25 asserções.
+- A migration `20260804160000_account_deletion_request.sql` adiciona exclusão lógica imediata e fila privada para limpeza física. Está aplicada somente no `Matcher Dev` desde 04/08/2026; sua suíte hospedada concluiu as 11 asserções sem falha.
 - As três Edge Functions do álbum privado — `private-album-media`, `private-album-delete` e `private-album-cleanup` — estão publicadas no `Matcher Dev` desde 03/08/2026. `private-album-media` foi republicada em 04/08/2026 com o adaptador para as chaves hospedadas atuais e a distinção entre credencial inválida e falha operacional. Antes desta publicação, seus 18 testes puros e os 7 testes do adaptador passaram, assim como o `fmt --check` e o type-check; o smoke test remoto sem sessão retornou `401 AUTH_REQUIRED` com `Cache-Control: private, no-store, max-age=0` e `Pragma: no-cache`.
 - As Edge Functions `age-verification-session` e `age-verification-webhook` foram republicadas depois da validação do workflow e dos cinco valores `DIDIT_*`; uma nova publicação deve repetir essas verificações.
-- Os oito arquivos pgTAP atuais declaram 370 asserções e passaram localmente após esta migration, incluindo 47/47 da suíte de leases/reaper. Essa suíte de 47 asserções também passou no `Matcher Dev` em 04/08/2026, sem `not ok` nem diagnóstico de plano divergente. A execução hospedada anterior, com 314 asserções, também passou; a suíte de autorização do álbum privado foi repetida no `Matcher Dev` após a correção do protocolo e passou com 78/78 asserções. Para normalizar o runner hospedado, cada transação assume explicitamente `postgres`, pois a conexão chega como `cli_login_postgres` com `NOINHERIT`.
+- Os dez arquivos pgTAP atuais declaram 406 asserções. As suítes novas de chat e exclusão passaram no `Matcher Dev` com 25/25 e 11/11; a suíte de leases/reaper também passou com 47/47 e a de autorização do álbum com 78/78. Para normalizar o runner hospedado, cada transação assume explicitamente `postgres`, pois a conexão chega como `cli_login_postgres` com `NOINHERIT`.
 - O APK debug de 04/08/2026 concluiu no Samsung um ciclo autenticado de upload, recarga da prévia privada e exclusão do item sintético. A contagem foi de 4/10 para 5/10 e voltou a 4/10, preservando a concessão já existente; nenhum dado sintético desse smoke ficou no álbum ou no aparelho.
 - O lint focado nos schemas `public,private` passou sem achados da aplicação; limitar o escopo evita diagnósticos pertencentes às extensões gerenciadas.
 - `seed.sql` aplicado apenas para disponibilizar perfis sintéticos na grade de desenvolvimento.

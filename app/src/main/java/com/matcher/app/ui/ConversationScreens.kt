@@ -1,7 +1,11 @@
 package com.matcher.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,8 +37,14 @@ import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,6 +62,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +72,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -68,9 +80,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.matcher.app.data.profile.ProfilePhotoProcessor
 import com.matcher.app.domain.chat.ChatMessage
+import com.matcher.app.domain.chat.ChatDeliveryStatus
+import com.matcher.app.domain.chat.ChatMediaStatus
+import com.matcher.app.domain.chat.ChatMessageKind
 import com.matcher.app.domain.chat.Conversation
 import com.matcher.app.domain.chat.ReportReason
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 
 @Composable
 internal fun ConversationsScreen(
@@ -228,6 +248,8 @@ private fun ActiveConversationCard(
             Text(
                 text = when {
                     lastMessage == null -> "Conversa iniciada"
+                    lastMessage.kind == ChatMessageKind.Photo && lastMessage.senderId == currentUserId -> "Você: Foto"
+                    lastMessage.kind == ChatMessageKind.Photo -> "Foto"
                     lastMessage.senderId == currentUserId -> "Você: ${lastMessage.body}"
                     else -> lastMessage.body
                 },
@@ -243,7 +265,25 @@ private fun ActiveConversationCard(
                 Text("  ·  ${profile.distance}", color = TextSecondary, fontSize = 10.sp)
             }
         }
-        Icon(Icons.Outlined.ChevronRight, "Abrir conversa", tint = TextSecondary)
+        if (conversation.unreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(Pink)
+                    .testTag("unread-${conversation.id}"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    conversation.unreadCount.coerceAtMost(99).toString(),
+                    color = Black,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        } else {
+            Icon(Icons.Outlined.ChevronRight, "Abrir conversa", tint = TextSecondary)
+        }
     }
 }
 
@@ -301,8 +341,16 @@ internal fun ConversationDetailScreen(
     errorMessage: String?,
     onBack: () -> Unit,
     onSendMessage: (String) -> Boolean,
+    onSendPhoto: (ByteArray) -> Boolean = { false },
+    onRetryMessage: (ChatMessage) -> Unit = {},
+    onOpenChatPhoto: (String) -> Unit = {},
+    chatPhotoPreviewBytes: ByteArray? = null,
+    chatPhotoPreviewLoading: Boolean = false,
+    onCloseChatPhoto: () -> Unit = {},
     onBlock: (String) -> Unit,
     onReport: (String, ReportReason, String) -> Unit,
+    onReportMessage: (String, ReportReason, String, String) -> Unit = { _, _, _, _ -> },
+    onToggleMute: (Boolean) -> Unit = {},
     receivedPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumShared: Boolean = false,
@@ -310,15 +358,36 @@ internal fun ConversationDetailScreen(
     onOpenPrivateAlbum: () -> Unit = {},
     onTogglePrivateAlbumShare: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val otherUserId = conversation.participantIds.firstOrNull { it != currentUserId } ?: return
     val displayName = profile?.name ?: "Conversa"
     var message by rememberSaveable(conversation.id) { mutableStateOf("") }
     var showBlockConfirmation by rememberSaveable { mutableStateOf(false) }
     var showReportDialog by rememberSaveable { mutableStateOf(false) }
+    var reportMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var showPhotoPolicy by rememberSaveable { mutableStateOf(false) }
     var safetyMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
     var albumMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
+    var mediaMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
     val albumActionAvailable = receivedPrivateAlbumAvailable || myPrivateAlbumAvailable
     val identityColors = profile?.colors ?: listOf(Pink, SurfaceRaised)
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val jpeg = withContext(Dispatchers.IO) {
+                        ProfilePhotoProcessor.prepareJpeg(context.contentResolver, uri)
+                    }
+                    onSendPhoto(jpeg)
+                } catch (_: Exception) {
+                    // The owning screen keeps the existing privacy-safe generic error treatment.
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -450,6 +519,20 @@ internal fun ConversationDetailScreen(
                     containerColor = SurfaceRaised,
                 ) {
                     DropdownMenuItem(
+                        text = { Text(if (conversation.muted) "Ativar notificações" else "Silenciar conversa") },
+                        leadingIcon = {
+                            Icon(
+                                if (conversation.muted) Icons.Outlined.Notifications else Icons.Outlined.NotificationsOff,
+                                null,
+                            )
+                        },
+                        onClick = {
+                            safetyMenuExpanded = false
+                            onToggleMute(!conversation.muted)
+                        },
+                        modifier = Modifier.testTag("toggle-conversation-mute"),
+                    )
+                    DropdownMenuItem(
                         text = { Text("Bloquear perfil") },
                         leadingIcon = { Icon(Icons.Outlined.Block, null) },
                         onClick = {
@@ -492,7 +575,13 @@ internal fun ConversationDetailScreen(
                 reverseLayout = true,
             ) {
                 items(conversation.messages.asReversed(), key = { it.id }) { chatMessage ->
-                    MessageBubble(message = chatMessage, isMine = chatMessage.senderId == currentUserId)
+                    MessageBubble(
+                        message = chatMessage,
+                        isMine = chatMessage.senderId == currentUserId,
+                        onRetry = { onRetryMessage(chatMessage) },
+                        onOpenPhoto = { onOpenChatPhoto(chatMessage.id) },
+                        onReport = { reportMessage = chatMessage },
+                    )
                 }
             }
         }
@@ -520,6 +609,55 @@ internal fun ConversationDetailScreen(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Box {
+                    IconButton(
+                        onClick = { mediaMenuExpanded = true },
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(SurfaceRaised)
+                            .testTag("conversation-media-menu"),
+                    ) {
+                        Icon(Icons.Outlined.AddPhotoAlternate, "Foto ou álbum", tint = Pink)
+                    }
+                    DropdownMenu(
+                        expanded = mediaMenuExpanded,
+                        onDismissRequest = { mediaMenuExpanded = false },
+                        containerColor = SurfaceRaised,
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Selecionar foto") },
+                            leadingIcon = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
+                            onClick = {
+                                mediaMenuExpanded = false
+                                showPhotoPolicy = true
+                            },
+                            modifier = Modifier.testTag("conversation-select-photo"),
+                        )
+                        if (myPrivateAlbumAvailable) {
+                            DropdownMenuItem(
+                                text = { Text(if (myPrivateAlbumShared) "Revogar meu álbum" else "Liberar meu álbum") },
+                                leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null) },
+                                onClick = {
+                                    mediaMenuExpanded = false
+                                    onTogglePrivateAlbumShare()
+                                },
+                                modifier = Modifier.testTag("conversation-media-toggle-album"),
+                            )
+                        }
+                        if (receivedPrivateAlbumAvailable) {
+                            DropdownMenuItem(
+                                text = { Text("Abrir álbum recebido") },
+                                leadingIcon = { Icon(Icons.Outlined.PhotoLibrary, null) },
+                                onClick = {
+                                    mediaMenuExpanded = false
+                                    onOpenPrivateAlbum()
+                                },
+                                modifier = Modifier.testTag("conversation-media-open-album"),
+                            )
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = message,
                     onValueChange = { message = it },
@@ -563,6 +701,58 @@ internal fun ConversationDetailScreen(
             },
         )
     }
+    if (chatPhotoPreviewLoading || chatPhotoPreviewBytes != null) {
+        AlertDialog(
+            onDismissRequest = onCloseChatPhoto,
+            containerColor = Black,
+            title = { Text("Foto da conversa", fontWeight = FontWeight.Bold) },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 240.dp, max = 560.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(SurfaceRaised),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (chatPhotoPreviewBytes != null) {
+                        AsyncImage(
+                            model = chatPhotoPreviewBytes,
+                            contentDescription = "Foto privada da conversa",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Text("Carregando foto…", color = TextSecondary)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = onCloseChatPhoto) { Text("Fechar") } },
+        )
+    }
+    if (showPhotoPolicy) {
+        AlertDialog(
+            onDismissRequest = { showPhotoPolicy = false },
+            containerColor = Surface,
+            title = { Text("Enviar uma foto", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "A foto fica somente nesta conversa e passa por moderação. Conteúdo sem consentimento, com menores ou abusivo é proibido.",
+                    color = TextSecondary,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPhotoPolicy = false
+                        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                    modifier = Modifier.testTag("confirm-chat-photo-picker"),
+                ) { Text("Escolher foto") }
+            },
+            dismissButton = { TextButton(onClick = { showPhotoPolicy = false }) { Text("Cancelar") } },
+        )
+    }
     if (showReportDialog) {
         ReportDialog(
             profileName = displayName,
@@ -570,6 +760,16 @@ internal fun ConversationDetailScreen(
             onConfirm = { reason, details ->
                 showReportDialog = false
                 onReport(otherUserId, reason, details)
+            },
+        )
+    }
+    reportMessage?.let { selectedMessage ->
+        ReportDialog(
+            profileName = if (selectedMessage.kind == ChatMessageKind.Photo) "esta foto" else "esta mensagem",
+            onDismiss = { reportMessage = null },
+            onConfirm = { reason, details ->
+                reportMessage = null
+                onReportMessage(otherUserId, reason, details, selectedMessage.id)
             },
         )
     }
@@ -607,12 +807,18 @@ internal fun ConversationAvatar(profile: DemoProfile?, fallbackName: String) {
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage, isMine: Boolean) {
+private fun MessageBubble(
+    message: ChatMessage,
+    isMine: Boolean,
+    onRetry: () -> Unit,
+    onOpenPhoto: () -> Unit,
+    onReport: () -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth(0.82f)
                 .widthIn(max = 520.dp)
@@ -625,15 +831,68 @@ private fun MessageBubble(message: ChatMessage, isMine: Boolean) {
                     ),
                 )
                 .background(if (isMine) Pink else SurfaceRaised)
+                .combinedClickable(
+                    onClick = {
+                        when {
+                            message.deliveryStatus == ChatDeliveryStatus.Failed -> onRetry()
+                            message.kind == ChatMessageKind.Photo && message.mediaStatus == ChatMediaStatus.Approved -> onOpenPhoto()
+                        }
+                    },
+                    onLongClick = { if (!isMine) onReport() },
+                )
                 .padding(horizontal = 15.dp, vertical = 12.dp),
         ) {
-            Text(
-                text = message.body,
-                color = if (isMine) Black else MaterialTheme.colorScheme.onBackground,
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
-                modifier = Modifier.testTag("message-${message.id}"),
-            )
+            if (message.kind == ChatMessageKind.Photo) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.testTag("message-${message.id}"),
+                ) {
+                    Icon(Icons.Outlined.AddPhotoAlternate, null, tint = if (isMine) Black else Pink)
+                    Column {
+                        Text(
+                            when (message.mediaStatus) {
+                                ChatMediaStatus.Approved -> "Foto"
+                                ChatMediaStatus.Adult, ChatMediaStatus.Abusive, ChatMediaStatus.Removed -> "Foto indisponível"
+                                else -> "Foto em análise"
+                            },
+                            color = if (isMine) Black else MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            if (message.mediaStatus == ChatMediaStatus.Approved) "Toque para abrir" else "A prévia aparece após a moderação",
+                            color = if (isMine) Black.copy(alpha = 0.7f) else TextSecondary,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    text = message.body,
+                    color = if (isMine) Black else MaterialTheme.colorScheme.onBackground,
+                    fontSize = 15.sp,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.testTag("message-${message.id}"),
+                )
+            }
+            if (isMine) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val (label, icon) = when (message.deliveryStatus) {
+                        ChatDeliveryStatus.Sending -> "Enviando" to Icons.Outlined.HourglassTop
+                        ChatDeliveryStatus.Delivered -> "Entregue" to Icons.Outlined.DoneAll
+                        ChatDeliveryStatus.Read -> "Lida" to Icons.Outlined.DoneAll
+                        ChatDeliveryStatus.Failed -> "Falhou · tentar novamente" to Icons.Outlined.Replay
+                        ChatDeliveryStatus.Sent -> "Enviada" to Icons.Outlined.DoneAll
+                    }
+                    Text(label, color = Black.copy(alpha = 0.68f), fontSize = 9.sp)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(icon, null, tint = Black.copy(alpha = 0.68f), modifier = Modifier.size(12.dp))
+                }
+            }
         }
     }
 }

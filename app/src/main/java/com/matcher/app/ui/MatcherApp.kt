@@ -228,6 +228,7 @@ fun MatcherApp(
             errorMessage = uiState.errorMessage,
             onBack = { activeConversationId = null },
             onSendMessage = { message -> matcherViewModel.sendMessage(activeConversation.id, message) },
+            onSendPhoto = { bytes -> matcherViewModel.sendPhoto(activeConversation.id, bytes) },
             onBlock = { targetId ->
                 if (matcherViewModel.blockUser(targetId)) activeConversationId = null
             },

@@ -25,12 +25,17 @@ import com.matcher.app.data.remote.UpdateGenderSettingsRequest
 import com.matcher.app.data.remote.matcherCode
 import com.matcher.app.data.remote.toEmailOtpRequestFailure
 import com.matcher.app.domain.chat.ChatSnapshot
+import com.matcher.app.domain.chat.ChatDeliveryStatus
+import com.matcher.app.domain.chat.ChatMediaStatus
+import com.matcher.app.domain.chat.ChatMessage
+import com.matcher.app.domain.chat.ChatMessageKind
 import com.matcher.app.domain.chat.ReportReason
 import com.matcher.app.domain.chat.SendMessageResult
 import com.matcher.app.domain.chat.StartConversationResult
 import java.net.URI
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -96,6 +101,12 @@ data class PrivateAlbumUiState(
     val loading: Boolean = false,
 )
 
+data class ChatPhotoPreviewUiState(
+    val messageId: String? = null,
+    val bytes: ByteArray? = null,
+    val loading: Boolean = false,
+)
+
 private data class PrivateAlbumWorkToken(
     val sessionGeneration: Long,
     val albumGeneration: Long,
@@ -122,6 +133,7 @@ data class RemoteMatcherUiState(
     val privateAlbum: PrivateAlbumUiState = PrivateAlbumUiState(),
     val discovery: DiscoveryPage = DiscoveryPage(emptyList(), null),
     val chat: ChatSnapshot = ChatSnapshot(0, emptyList(), emptySet(), emptyList()),
+    val chatPhotoPreview: ChatPhotoPreviewUiState = ChatPhotoPreviewUiState(),
     val loading: Boolean = false,
     val verificationLoading: Boolean = false,
     val photoLoading: Boolean = false,
@@ -162,6 +174,7 @@ class RemoteMatcherViewModel(
     private val authOperationInFlight = AtomicBoolean(false)
     private var authOperationGeneration = 0L
     private val otpCooldownSecondsByEmail = mutableMapOf<String, Int>()
+    private val pendingChatPhotoBytes = mutableMapOf<String, ByteArray>()
 
     init {
         viewModelScope.launch {
@@ -175,6 +188,8 @@ class RemoteMatcherViewModel(
                 }
                 invalidatePrivateAlbumWork()
                 wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
+                wipePendingChatPhotos()
+                closeChatPhoto()
                 realtimeJob?.cancel()
                 realtimeJob = null
                 discoveryPaginationJob?.cancel()
@@ -879,24 +894,126 @@ class RemoteMatcherViewModel(
 
     fun sendMessage(conversationId: String, body: String): Boolean {
         if (body.isBlank() || !requireActiveAccount()) return false
+        val clientMessageId = UUID.randomUUID().toString()
+        addPendingChatMessage(
+            ChatMessage(
+                id = "local-$clientMessageId",
+                conversationId = conversationId,
+                senderId = currentUserIdOrNull() ?: return false,
+                body = body.trim(),
+                deliveryStatus = ChatDeliveryStatus.Sending,
+                clientMessageId = clientMessageId,
+            ),
+        )
         launchRemote { token ->
-            when (chatGateway.sendMessage(conversationId, body)) {
+            when (chatGateway.sendMessageWithKey(conversationId, body, clientMessageId)) {
                 is SendMessageResult.Sent -> {
                     ensureSessionWorkIsCurrent(token)
                     reloadChat(token)
                 }
                 SendMessageResult.InvalidMessage -> {
                     ensureSessionWorkIsCurrent(token)
+                    markPendingChatMessageFailed(clientMessageId)
                     setError("Escreva uma mensagem válida antes de enviar.")
                 }
                 SendMessageResult.NotAllowed,
                 SendMessageResult.NotFound -> {
                     ensureSessionWorkIsCurrent(token)
+                    markPendingChatMessageFailed(clientMessageId)
                     setError("Esta conversa não está mais disponível.")
                 }
             }
         }
         return true
+    }
+
+    fun sendPhoto(conversationId: String, jpegBytes: ByteArray): Boolean {
+        if (jpegBytes.isEmpty() || !requireActiveAccount()) return false
+        val clientMessageId = UUID.randomUUID().toString()
+        val senderId = currentUserIdOrNull() ?: return false
+        pendingChatPhotoBytes[clientMessageId] = jpegBytes.copyOf()
+        addPendingChatMessage(
+            ChatMessage(
+                id = "local-$clientMessageId",
+                conversationId = conversationId,
+                senderId = senderId,
+                kind = ChatMessageKind.Photo,
+                mediaStatus = ChatMediaStatus.Pending,
+                deliveryStatus = ChatDeliveryStatus.Sending,
+                clientMessageId = clientMessageId,
+            ),
+        )
+        sendPendingPhoto(conversationId, clientMessageId)
+        return true
+    }
+
+    fun retryMessage(message: ChatMessage) {
+        val clientMessageId = message.clientMessageId ?: return
+        if (message.deliveryStatus != ChatDeliveryStatus.Failed || !requireActiveAccount()) return
+        markPendingChatMessageSending(clientMessageId)
+        if (message.kind == ChatMessageKind.Photo) {
+            sendPendingPhoto(message.conversationId, clientMessageId)
+        } else {
+            launchRemote { token ->
+                when (chatGateway.sendMessageWithKey(message.conversationId, message.body, clientMessageId)) {
+                    is SendMessageResult.Sent -> reloadChat(token)
+                    else -> {
+                        ensureSessionWorkIsCurrent(token)
+                        markPendingChatMessageFailed(clientMessageId)
+                    }
+                }
+            }
+        }
+    }
+
+    fun markConversationRead(conversationId: String) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            chatGateway.markConversationRead(conversationId)
+            reloadChat(token)
+        }
+    }
+
+    fun setConversationMuted(conversationId: String, muted: Boolean) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            chatGateway.setConversationMuted(conversationId, muted)
+            reloadChat(token)
+        }
+    }
+
+    fun openChatPhoto(messageId: String) {
+        if (!requireActiveAccount()) return
+        closeChatPhoto()
+        mutableState.update {
+            it.copy(chatPhotoPreview = ChatPhotoPreviewUiState(messageId = messageId, loading = true))
+        }
+        val token = currentSessionWorkToken()
+        viewModelScope.launch {
+            try {
+                val bytes = chatGateway.downloadChatPhoto(messageId)
+                ensureSessionWorkIsCurrent(token)
+                if (mutableState.value.chatPhotoPreview.messageId != messageId) {
+                    bytes.fill(0)
+                    return@launch
+                }
+                mutableState.update {
+                    it.copy(chatPhotoPreview = ChatPhotoPreviewUiState(messageId = messageId, bytes = bytes))
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (isSessionWorkCurrent(token) && mutableState.value.chatPhotoPreview.messageId == messageId) {
+                    closeChatPhoto()
+                    setError("Esta foto não está mais disponível.")
+                }
+            }
+        }
+    }
+
+    fun closeChatPhoto() {
+        mutableState.value.chatPhotoPreview.bytes?.fill(0)
+        mutableState.update { it.copy(chatPhotoPreview = ChatPhotoPreviewUiState()) }
     }
 
     fun blockUser(targetUserId: String, onBlocked: () -> Unit) {
@@ -919,11 +1036,16 @@ class RemoteMatcherViewModel(
         reason: ReportReason,
         details: String,
         conversationId: String?,
+        messageId: String? = null,
         onReported: () -> Unit,
     ) {
         if (!requireActiveAccount()) return
         launchRemote { token ->
-            chatGateway.reportUser(targetUserId, reason, details, conversationId)
+            if (messageId != null && conversationId != null) {
+                chatGateway.reportMessage(targetUserId, reason, details, conversationId, messageId)
+            } else {
+                chatGateway.reportUser(targetUserId, reason, details, conversationId)
+            }
             ensureSessionWorkIsCurrent(token)
             invalidatePrivateAlbumWork()
             clearVisiblePrivateAlbum()
@@ -939,8 +1061,23 @@ class RemoteMatcherViewModel(
         profilePhotoJob = null
         invalidatePrivateAlbumWork()
         wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
+        wipePendingChatPhotos()
+        closeChatPhoto()
         mutableState.update { it.copy(privateAlbum = PrivateAlbumUiState()) }
         launchRemote { authGateway.signOut() }
+    }
+
+    fun deleteAccount() {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            check(profileGateway.requestAccountDeletion()) { "ACCOUNT_DELETION_FAILED" }
+            ensureSessionWorkIsCurrent(token)
+            invalidatePrivateAlbumWork()
+            wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
+            wipePendingChatPhotos()
+            closeChatPhoto()
+            authGateway.signOut()
+        }
     }
 
     fun clearError() {
@@ -1077,6 +1214,67 @@ class RemoteMatcherViewModel(
         mutableState.update { current ->
             if (isSessionWorkCurrent(token)) current.copy(chat = chat) else current
         }
+    }
+
+    private fun sendPendingPhoto(conversationId: String, clientMessageId: String) {
+        val bytes = pendingChatPhotoBytes[clientMessageId] ?: run {
+            markPendingChatMessageFailed(clientMessageId)
+            return
+        }
+        launchRemote { token ->
+            when (chatGateway.sendPhoto(conversationId, bytes, clientMessageId)) {
+                is SendMessageResult.Sent -> {
+                    pendingChatPhotoBytes.remove(clientMessageId)?.fill(0)
+                    reloadChat(token)
+                }
+                else -> {
+                    ensureSessionWorkIsCurrent(token)
+                    markPendingChatMessageFailed(clientMessageId)
+                    setError("Não foi possível enviar a foto. Toque nela para tentar novamente.")
+                }
+            }
+        }
+    }
+
+    private fun addPendingChatMessage(message: ChatMessage) {
+        mutableState.update { state ->
+            state.copy(
+                chat = state.chat.copy(
+                    conversations = state.chat.conversations.map { conversation ->
+                        if (conversation.id == message.conversationId) {
+                            conversation.copy(messages = conversation.messages + message)
+                        } else conversation
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun markPendingChatMessageSending(clientMessageId: String) =
+        updatePendingChatMessage(clientMessageId) { it.copy(deliveryStatus = ChatDeliveryStatus.Sending) }
+
+    private fun markPendingChatMessageFailed(clientMessageId: String) =
+        updatePendingChatMessage(clientMessageId) { it.copy(deliveryStatus = ChatDeliveryStatus.Failed) }
+
+    private fun updatePendingChatMessage(clientMessageId: String, transform: (ChatMessage) -> ChatMessage) {
+        mutableState.update { state ->
+            state.copy(
+                chat = state.chat.copy(
+                    conversations = state.chat.conversations.map { conversation ->
+                        conversation.copy(
+                            messages = conversation.messages.map { message ->
+                                if (message.clientMessageId == clientMessageId) transform(message) else message
+                            },
+                        )
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun wipePendingChatPhotos() {
+        pendingChatPhotoBytes.values.forEach { it.fill(0) }
+        pendingChatPhotoBytes.clear()
     }
 
     private fun reloadMyPrivateAlbum(includeBytes: Boolean) {
@@ -1359,6 +1557,9 @@ class RemoteMatcherViewModel(
         setError("Esta conta não pode usar esta função agora.")
         return false
     }
+
+    private fun currentUserIdOrNull(): String? =
+        (mutableState.value.session as? MatcherSession.SignedIn)?.userId
 
     private fun currentSessionWorkToken(): SessionWorkToken = SessionWorkToken(
         generation = sessionGeneration,

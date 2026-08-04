@@ -97,11 +97,17 @@ interface ProfileGateway {
         error("Gender settings are not supported by this gateway")
 
     suspend fun submitProfilePhoto(jpegBytes: ByteArray): RemoteProfile
+
+    suspend fun requestAccountDeletion(): Boolean = false
 }
 
 class SupabaseProfileGateway(
     private val client: SupabaseClient,
 ) : ProfileGateway {
+    override suspend fun requestAccountDeletion(): Boolean = client.postgrest
+        .rpc("request_account_deletion")
+        .decodeAs()
+
     override suspend fun completeOnboarding(request: CompleteOnboardingRequest): CompleteOnboardingResponse {
         require(request.termsAccepted) { "Terms acceptance is required" }
         val normalizedGenderVisible = request.genderVisible &&

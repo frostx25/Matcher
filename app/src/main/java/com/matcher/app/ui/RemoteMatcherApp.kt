@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,6 +44,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -418,6 +420,9 @@ private fun RemoteHome(
             viewModel.refreshPrivateAlbumAccess()
         }
     }
+    LaunchedEffect(activeConversation?.id) {
+        activeConversation?.id?.let(viewModel::markConversationRead)
+    }
 
     LaunchedEffect(state.privateAlbum.destination) {
         if (state.privateAlbum.destination is PrivateAlbumDestination.Received) {
@@ -542,11 +547,27 @@ private fun RemoteHome(
                 errorMessage = state.errorMessage,
                 onBack = { activeConversationId = null },
                 onSendMessage = { viewModel.sendMessage(activeConversation.id, it) },
+                onSendPhoto = { viewModel.sendPhoto(activeConversation.id, it) },
+                onRetryMessage = viewModel::retryMessage,
+                onOpenChatPhoto = viewModel::openChatPhoto,
+                chatPhotoPreviewBytes = state.chatPhotoPreview.bytes,
+                chatPhotoPreviewLoading = state.chatPhotoPreview.loading,
+                onCloseChatPhoto = viewModel::closeChatPhoto,
+                onToggleMute = { viewModel.setConversationMuted(activeConversation.id, it) },
                 onBlock = { target -> viewModel.blockUser(target) { activeConversationId = null } },
                 onReport = { target, reason, details ->
                     viewModel.reportUser(target, reason, details, activeConversation.id) {
                         activeConversationId = null
                     }
+                },
+                onReportMessage = { target, reason, details, messageId ->
+                    viewModel.reportUser(
+                        targetUserId = target,
+                        reason = reason,
+                        details = details,
+                        conversationId = activeConversation.id,
+                        messageId = messageId,
+                    ) { activeConversationId = null }
                 },
                 receivedPrivateAlbumAvailable = targetId != null && state.privateAlbum.sharedWithMe.any {
                     it.ownerId == targetId
@@ -637,6 +658,7 @@ private fun RemoteHome(
                         viewModel.openReceivedPrivateAlbum(shared.ownerId, shared.ownerName)
                     },
                     onSignOut = viewModel::signOut,
+                    onDeleteAccount = viewModel::deleteAccount,
                     modifier = Modifier.padding(padding),
                 )
             }
@@ -985,11 +1007,13 @@ private fun RemoteProfileScreen(
     sharedPrivateAlbums: List<SharedPrivateAlbumUi>,
     onOpenSharedPrivateAlbum: (SharedPrivateAlbumUi) -> Unit,
     onSignOut: () -> Unit,
+    onDeleteAccount: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var editGender by rememberSaveable { mutableStateOf(false) }
+    var showDeleteAccount by rememberSaveable { mutableStateOf(false) }
     var identityDraft by remember(genderSettings, editGender) {
         mutableStateOf(genderSettings?.genderIdentityIds?.toSet() ?: emptySet())
     }
@@ -1204,6 +1228,35 @@ private fun RemoteProfileScreen(
         errorMessage?.let { Text(it, color = Pink, modifier = Modifier.testTag("remote-profile-error")) }
         Text("Região aproximada: ${profile.regionCode}", color = TextSecondary, fontSize = 12.sp)
         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sair") }
+        TextButton(
+            onClick = { showDeleteAccount = true },
+            modifier = Modifier.fillMaxWidth().testTag("delete-account"),
+        ) { Text("Excluir minha conta", color = Pink) }
+    }
+
+    if (showDeleteAccount) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAccount = false },
+            containerColor = Surface,
+            title = { Text("Excluir sua conta?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Seu perfil, conversas e álbuns deixam de ficar acessíveis imediatamente. A remoção definitiva respeita apenas retenções obrigatórias de segurança.",
+                    color = TextSecondary,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteAccount = false
+                        onDeleteAccount()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                    modifier = Modifier.testTag("confirm-delete-account"),
+                ) { Text("Excluir conta") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteAccount = false }) { Text("Cancelar") } },
+        )
     }
 }
 

@@ -1,6 +1,9 @@
 package com.matcher.app.data.remote
 
 import com.matcher.app.domain.chat.ChatMessage
+import com.matcher.app.domain.chat.ChatDeliveryStatus
+import com.matcher.app.domain.chat.ChatMediaStatus
+import com.matcher.app.domain.chat.ChatMessageKind
 import com.matcher.app.domain.chat.ChatSnapshot
 import com.matcher.app.domain.chat.Conversation
 import com.matcher.app.domain.chat.ModerationCase
@@ -16,6 +19,9 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.storage.storage
+import io.ktor.http.ContentType
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -55,6 +61,18 @@ private data class SendMessageRequest(
 )
 
 @Serializable
+private data class SendPhotoRow(
+    @SerialName("message_id") val messageId: String,
+    @SerialName("moderation_status") val moderationStatus: String,
+)
+
+@Serializable
+private data class AuthorizedChatMediaRow(
+    @SerialName("object_path") val objectPath: String,
+    @SerialName("mime_type") val mimeType: String,
+)
+
+@Serializable
 private data class BlockUserRequest(
     @SerialName("blocked_user_id") val blockedUserId: String,
 )
@@ -81,7 +99,19 @@ private data class MessageRow(
     val id: String,
     @SerialName("conversation_id") val conversationId: String,
     @SerialName("sender_id") val senderId: String,
-    val body: String,
+    val body: String? = null,
+    val kind: String = "text",
+    @SerialName("client_message_id") val clientMessageId: String? = null,
+    @SerialName("delivered_at") val deliveredAt: String? = null,
+    @SerialName("read_at") val readAt: String? = null,
+    @SerialName("media_status") val mediaStatus: String? = null,
+)
+
+@Serializable
+private data class ConversationUserStateRow(
+    @SerialName("conversation_id") val conversationId: String,
+    val muted: Boolean,
+    @SerialName("unread_count") val unreadCount: Int,
 )
 
 @Serializable
@@ -97,6 +127,7 @@ private data class ReportRow(
     val reason: String,
     val details: String,
     @SerialName("conversation_id") val conversationId: String?,
+    @SerialName("related_message_id") val relatedMessageId: String? = null,
 )
 
 interface RemoteChatGateway {
@@ -105,6 +136,24 @@ interface RemoteChatGateway {
     suspend fun startConversation(recipientId: String, firstMessage: String): StartConversationResult
 
     suspend fun sendMessage(conversationId: String, body: String): SendMessageResult
+
+    suspend fun sendMessageWithKey(
+        conversationId: String,
+        body: String,
+        clientMessageId: String,
+    ): SendMessageResult = sendMessage(conversationId, body)
+
+    suspend fun sendPhoto(
+        conversationId: String,
+        jpegBytes: ByteArray,
+        clientMessageId: String,
+    ): SendMessageResult = SendMessageResult.NotAllowed
+
+    suspend fun markConversationRead(conversationId: String): Boolean = false
+
+    suspend fun setConversationMuted(conversationId: String, muted: Boolean): Boolean = false
+
+    suspend fun downloadChatPhoto(messageId: String): ByteArray = error("CHAT_PHOTO_NOT_AVAILABLE")
 
     suspend fun blockUser(targetUserId: String): Boolean
 
@@ -115,6 +164,14 @@ interface RemoteChatGateway {
         conversationId: String?,
     ): ModerationCase
 
+    suspend fun reportMessage(
+        targetUserId: String,
+        reason: ReportReason,
+        details: String,
+        conversationId: String,
+        messageId: String,
+    ): ModerationCase = reportUser(targetUserId, reason, details, conversationId)
+
     fun realtimeInvalidations(): Flow<Unit>
 }
 
@@ -123,12 +180,21 @@ class SupabaseChatGateway(
 ) : RemoteChatGateway {
     override suspend fun snapshot(): ChatSnapshot {
         val currentUserId = currentUserId()
+        client.postgrest.rpc("mark_chat_delivered")
         val quota = remainingQuota()
+        val states = client.postgrest.rpc("get_chat_user_states")
+            .decodeList<ConversationUserStateRow>()
+            .associateBy { it.conversationId }
         val conversations = client.from("conversations").select {
             order("last_message_at", Order.DESCENDING)
             range(0L..49L)
         }.decodeList<ConversationRow>().map { row ->
-            row.toDomain(loadMessages(row.id))
+            val messages = loadMessages(row.id)
+            row.toDomain(
+                messages = messages,
+                unreadCount = states[row.id]?.unreadCount ?: 0,
+                muted = states[row.id]?.muted ?: false,
+            )
         }
         val blocks = client.from("blocks").select {
             range(0L..199L)
@@ -176,12 +242,21 @@ class SupabaseChatGateway(
     }
 
     override suspend fun sendMessage(conversationId: String, body: String): SendMessageResult {
+        return sendMessageWithKey(conversationId, body, UUID.randomUUID().toString())
+    }
+
+    override suspend fun sendMessageWithKey(
+        conversationId: String,
+        body: String,
+        clientMessageId: String,
+    ): SendMessageResult {
         return try {
             val messageId = client.postgrest.rpc(
                 function = "send_message",
                 parameters = buildJsonObject {
                     put("conversation_id", conversationId)
                     put("message_body", body)
+                    put("client_message_id", clientMessageId)
                 },
             ).decodeAs<String>()
             SendMessageResult.Sent(
@@ -190,6 +265,8 @@ class SupabaseChatGateway(
                     conversationId = conversationId,
                     senderId = currentUserId(),
                     body = body.trim(),
+                    deliveryStatus = ChatDeliveryStatus.Sent,
+                    clientMessageId = clientMessageId,
                 ),
             )
         } catch (error: PostgrestRestException) {
@@ -199,6 +276,85 @@ class SupabaseChatGateway(
                 else -> throw error
             }
         }
+    }
+
+    override suspend fun sendPhoto(
+        conversationId: String,
+        jpegBytes: ByteArray,
+        clientMessageId: String,
+    ): SendMessageResult {
+        if (jpegBytes.size !in 1..MAX_CHAT_PHOTO_BYTES || !jpegBytes.isJpeg()) {
+            return SendMessageResult.InvalidMessage
+        }
+        val normalizedKey = runCatching { UUID.fromString(clientMessageId).toString() }.getOrNull()
+            ?: return SendMessageResult.InvalidMessage
+        val objectPath = "${currentUserId()}/$conversationId/$normalizedKey.jpg"
+        val bucket = client.storage.from(CHAT_MEDIA_BUCKET)
+        runCatching {
+            bucket.upload(objectPath, jpegBytes) {
+                upsert = false
+                contentType = ContentType.Image.JPEG
+            }
+        }
+        return try {
+            val row = client.postgrest.rpc(
+                function = "send_photo_message",
+                parameters = buildJsonObject {
+                    put("conversation_id", conversationId)
+                    put("client_message_id", normalizedKey)
+                    put("object_path", objectPath)
+                    put("media_type", "image/jpeg")
+                },
+            ).decodeSingle<SendPhotoRow>()
+            SendMessageResult.Sent(
+                ChatMessage(
+                    id = row.messageId,
+                    conversationId = conversationId,
+                    senderId = currentUserId(),
+                    kind = ChatMessageKind.Photo,
+                    mediaStatus = row.moderationStatus.toMediaStatus(),
+                    deliveryStatus = ChatDeliveryStatus.Sent,
+                    clientMessageId = normalizedKey,
+                ),
+            )
+        } catch (error: PostgrestRestException) {
+            when (error.matcherCode()) {
+                "CHAT_NOT_AVAILABLE" -> SendMessageResult.NotAllowed
+                "INVALID_CHAT_PHOTO", "CHAT_PHOTO_NOT_FOUND" -> SendMessageResult.InvalidMessage
+                else -> throw error
+            }
+        }
+    }
+
+    override suspend fun markConversationRead(conversationId: String): Boolean {
+        client.postgrest.rpc(
+            function = "mark_conversation_read",
+            parameters = buildJsonObject { put("target_conversation_id", conversationId) },
+        ).decodeAs<Int>()
+        return true
+    }
+
+    override suspend fun setConversationMuted(conversationId: String, muted: Boolean): Boolean =
+        client.postgrest.rpc(
+            function = "set_conversation_muted",
+            parameters = buildJsonObject {
+                put("target_conversation_id", conversationId)
+                put("should_mute", muted)
+            },
+        ).decodeAs()
+
+    override suspend fun downloadChatPhoto(messageId: String): ByteArray {
+        val media = client.postgrest.rpc(
+            function = "authorize_chat_media",
+            parameters = buildJsonObject { put("target_message_id", messageId) },
+        ).decodeList<AuthorizedChatMediaRow>().singleOrNull()
+            ?: error("CHAT_PHOTO_NOT_AVAILABLE")
+        check(media.mimeType in setOf("image/jpeg", "image/png", "image/webp")) {
+            "INVALID_CHAT_PHOTO"
+        }
+        val bytes = client.storage.from(CHAT_MEDIA_BUCKET).downloadAuthenticated(media.objectPath)
+        check(bytes.size in 1..MAX_CHAT_PHOTO_BYTES) { "INVALID_CHAT_PHOTO" }
+        return bytes
     }
 
     override suspend fun blockUser(targetUserId: String): Boolean = client.postgrest.rpc(
@@ -211,6 +367,22 @@ class SupabaseChatGateway(
         reason: ReportReason,
         details: String,
         conversationId: String?,
+    ): ModerationCase = reportContent(targetUserId, reason, details, conversationId, null)
+
+    override suspend fun reportMessage(
+        targetUserId: String,
+        reason: ReportReason,
+        details: String,
+        conversationId: String,
+        messageId: String,
+    ): ModerationCase = reportContent(targetUserId, reason, details, conversationId, messageId)
+
+    private suspend fun reportContent(
+        targetUserId: String,
+        reason: ReportReason,
+        details: String,
+        conversationId: String?,
+        messageId: String?,
     ): ModerationCase {
         val caseId = client.postgrest.rpc(
             function = "report_user",
@@ -219,7 +391,7 @@ class SupabaseChatGateway(
                 put("report_reason", reason.toRemoteValue())
                 put("report_details", details)
                 put("related_conversation_id", conversationId)
-                put("related_message_id", null as String?)
+                put("related_message_id", messageId)
             },
         ).decodeAs<String>()
         return ModerationCase(
@@ -229,6 +401,7 @@ class SupabaseChatGateway(
             reason = reason,
             details = details.trim(),
             relatedConversationId = conversationId,
+            relatedMessageId = messageId,
         )
     }
 
@@ -240,6 +413,9 @@ class SupabaseChatGateway(
             },
             channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "conversations"
+            },
+            channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "conversation_user_states"
             },
         ).onEach { trySend(Unit) }.launchIn(this)
         channel.subscribe(blockUntilSubscribed = true)
@@ -258,15 +434,19 @@ class SupabaseChatGateway(
         val row = client.from("conversations").select {
             filter { eq("id", conversationId) }
         }.decodeSingle<ConversationRow>()
-        return row.toDomain(loadMessages(row.id))
+        val messages = loadMessages(row.id)
+        val currentUserId = currentUserId()
+        return row.toDomain(
+            messages,
+            unreadCount = messages.count { it.senderId != currentUserId && it.deliveryStatus != ChatDeliveryStatus.Read },
+        )
     }
 
     private suspend fun loadMessages(conversationId: String): List<ChatMessage> =
-        client.from("messages").select {
-            filter { eq("conversation_id", conversationId) }
-            order("created_at", Order.ASCENDING)
-            range(0L..199L)
-        }.decodeList<MessageRow>().map(MessageRow::toDomain)
+        client.postgrest.rpc(
+            function = "list_chat_messages",
+            parameters = buildJsonObject { put("target_conversation_id", conversationId) },
+        ).decodeList<MessageRow>().map(MessageRow::toDomain)
 
     private fun currentUserId(): String =
         requireNotNull(client.auth.currentUserOrNull()) { "Authenticated session required" }.id
@@ -282,6 +462,10 @@ internal fun Throwable.matcherCode(): String? {
         "CHAT_BLOCKED",
         "CHAT_QUOTA_EXHAUSTED",
         "CHAT_NOT_AVAILABLE",
+        "INVALID_CLIENT_MESSAGE_ID",
+        "CLIENT_MESSAGE_CONFLICT",
+        "INVALID_CHAT_PHOTO",
+        "CHAT_PHOTO_NOT_FOUND",
         "ADULTS_ONLY",
         "TERMS_REQUIRED",
         "BIRTH_YEAR_LOCKED",
@@ -349,18 +533,32 @@ internal fun Throwable.matcherCode(): String? {
 internal fun Throwable.selfAndCauses(): Sequence<Throwable> =
     generateSequence(this) { current -> current.cause }.take(16)
 
-private fun ConversationRow.toDomain(messages: List<ChatMessage>) = Conversation(
+private fun ConversationRow.toDomain(
+    messages: List<ChatMessage>,
+    unreadCount: Int = 0,
+    muted: Boolean = false,
+) = Conversation(
     id = id,
     participantIds = setOf(participantA, participantB),
     startedByUserId = startedBy,
     messages = messages,
+    unreadCount = unreadCount,
+    muted = muted,
 )
 
 private fun MessageRow.toDomain() = ChatMessage(
     id = id,
     conversationId = conversationId,
     senderId = senderId,
-    body = body,
+    body = body.orEmpty(),
+    kind = if (kind == "photo") ChatMessageKind.Photo else ChatMessageKind.Text,
+    deliveryStatus = when {
+        readAt != null -> ChatDeliveryStatus.Read
+        deliveredAt != null -> ChatDeliveryStatus.Delivered
+        else -> ChatDeliveryStatus.Sent
+    },
+    mediaStatus = mediaStatus?.toMediaStatus(),
+    clientMessageId = clientMessageId,
 )
 
 private fun ReportRow.toDomain() = ModerationCase(
@@ -375,7 +573,23 @@ private fun ReportRow.toDomain() = ModerationCase(
     },
     details = details,
     relatedConversationId = conversationId,
+    relatedMessageId = relatedMessageId,
 )
+
+private fun String.toMediaStatus(): ChatMediaStatus = when (this) {
+    "approved" -> ChatMediaStatus.Approved
+    "adult" -> ChatMediaStatus.Adult
+    "abusive" -> ChatMediaStatus.Abusive
+    "removed" -> ChatMediaStatus.Removed
+    else -> ChatMediaStatus.Pending
+}
+
+private fun ByteArray.isJpeg(): Boolean =
+    size >= 4 && this[0] == 0xFF.toByte() && this[1] == 0xD8.toByte() &&
+        this[size - 2] == 0xFF.toByte() && this[size - 1] == 0xD9.toByte()
+
+private const val CHAT_MEDIA_BUCKET = "chat-media"
+private const val MAX_CHAT_PHOTO_BYTES = 5 * 1024 * 1024
 
 private fun ReportReason.toRemoteValue(): String = when (this) {
     ReportReason.Spam -> "spam"

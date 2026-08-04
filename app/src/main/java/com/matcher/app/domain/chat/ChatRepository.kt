@@ -7,11 +7,21 @@ enum class ReportReason {
     Other,
 }
 
+enum class ChatMessageKind { Text, Photo }
+
+enum class ChatDeliveryStatus { Sending, Sent, Delivered, Read, Failed }
+
+enum class ChatMediaStatus { Pending, Approved, Adult, Abusive, Removed }
+
 data class ChatMessage(
     val id: String,
     val conversationId: String,
     val senderId: String,
-    val body: String,
+    val body: String = "",
+    val kind: ChatMessageKind = ChatMessageKind.Text,
+    val deliveryStatus: ChatDeliveryStatus = ChatDeliveryStatus.Sent,
+    val mediaStatus: ChatMediaStatus? = null,
+    val clientMessageId: String? = null,
 )
 
 data class Conversation(
@@ -19,6 +29,8 @@ data class Conversation(
     val participantIds: Set<String>,
     val startedByUserId: String,
     val messages: List<ChatMessage>,
+    val unreadCount: Int = 0,
+    val muted: Boolean = false,
 )
 
 data class ModerationCase(
@@ -28,6 +40,7 @@ data class ModerationCase(
     val reason: ReportReason,
     val details: String,
     val relatedConversationId: String?,
+    val relatedMessageId: String? = null,
     val state: String = "pending-review",
 )
 
@@ -88,6 +101,12 @@ interface ChatRepository {
         body: String,
     ): SendMessageResult
 
+    fun sendPhoto(
+        senderId: String,
+        conversationId: String,
+        jpegBytes: ByteArray,
+    ): SendMessageResult = SendMessageResult.NotAllowed
+
     fun blockUser(actorId: String, targetUserId: String): Boolean
 
     fun reportUser(
@@ -95,6 +114,7 @@ interface ChatRepository {
         targetUserId: String,
         reason: ReportReason,
         details: String,
+        relatedMessageId: String? = null,
     ): ModerationCase?
 }
 
@@ -205,6 +225,30 @@ class InMemoryChatRepository(
         SendMessageResult.Sent(updated.messages.last())
     }
 
+    override fun sendPhoto(
+        senderId: String,
+        conversationId: String,
+        jpegBytes: ByteArray,
+    ): SendMessageResult = synchronized(lock) {
+        if (jpegBytes.isEmpty()) return@synchronized SendMessageResult.InvalidMessage
+        val conversationIndex = conversations.indexOfFirst { it.id == conversationId }
+        if (conversationIndex == -1) return@synchronized SendMessageResult.NotFound
+        val conversation = conversations[conversationIndex]
+        if (senderId !in conversation.participantIds) return@synchronized SendMessageResult.NotAllowed
+        val otherUserId = conversation.participantIds.first { it != senderId }
+        if (isBlockedPair(senderId, otherUserId)) return@synchronized SendMessageResult.NotAllowed
+        messageSequence += 1
+        val message = ChatMessage(
+            id = "message-$messageSequence",
+            conversationId = conversationId,
+            senderId = senderId,
+            kind = ChatMessageKind.Photo,
+            mediaStatus = ChatMediaStatus.Pending,
+        )
+        conversations[conversationIndex] = conversation.copy(messages = conversation.messages + message)
+        SendMessageResult.Sent(message)
+    }
+
     override fun blockUser(actorId: String, targetUserId: String): Boolean = synchronized(lock) {
         if (actorId == targetUserId) return@synchronized false
         blockPair(actorId, targetUserId)
@@ -216,6 +260,7 @@ class InMemoryChatRepository(
         targetUserId: String,
         reason: ReportReason,
         details: String,
+        relatedMessageId: String?,
     ): ModerationCase? = synchronized(lock) {
         if (actorId == targetUserId) return@synchronized null
         val relatedConversationId = conversations.firstOrNull {
@@ -227,6 +272,7 @@ class InMemoryChatRepository(
             reason = reason,
             details = details,
             relatedConversationId = relatedConversationId,
+            relatedMessageId = relatedMessageId,
         )
         blockPair(actorId, targetUserId)
         moderationCase
@@ -263,6 +309,7 @@ class InMemoryChatRepository(
         reason: ReportReason,
         details: String,
         relatedConversationId: String?,
+        relatedMessageId: String?,
     ): ModerationCase {
         reportSequence += 1
         return ModerationCase(
@@ -272,6 +319,7 @@ class InMemoryChatRepository(
             reason = reason,
             details = details.trim(),
             relatedConversationId = relatedConversationId,
+            relatedMessageId = relatedMessageId,
         ).also(reports::add)
     }
 

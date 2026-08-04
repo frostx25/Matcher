@@ -102,6 +102,29 @@ class ConversationDetailScreenTest {
         composeRule.onNodeWithTag("send-active-message").assertIsNotEnabled()
     }
 
+    @Test
+    fun mediaMenuSeparatesPhotoFromAlbumAndMuteIsAvailable() {
+        var toggleAlbumCalls = 0
+        var muteValue: Boolean? = null
+        setConversationContent(
+            myPrivateAlbumAvailable = true,
+            onTogglePrivateAlbumShare = { toggleAlbumCalls += 1 },
+            onToggleMute = { muteValue = it },
+        )
+
+        composeRule.onNodeWithTag("conversation-media-menu").performClick()
+        composeRule.onNodeWithText("Selecionar foto").assertIsDisplayed()
+        composeRule.onNodeWithText("Liberar meu álbum").assertIsDisplayed()
+        composeRule.onNodeWithTag("conversation-media-toggle-album").performClick()
+        composeRule.onNodeWithTag("conversation-safety-menu").performClick()
+        composeRule.onNodeWithTag("toggle-conversation-mute").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, toggleAlbumCalls)
+            assertEquals(true, muteValue)
+        }
+    }
+
     private fun setConversationContent(
         receivedPrivateAlbumAvailable: Boolean = false,
         myPrivateAlbumAvailable: Boolean = false,
@@ -109,6 +132,7 @@ class ConversationDetailScreenTest {
         onOpenProfile: () -> Unit = {},
         onOpenPrivateAlbum: () -> Unit = {},
         onTogglePrivateAlbumShare: () -> Unit = {},
+        onToggleMute: (Boolean) -> Unit = {},
         onBlock: () -> Unit = {},
         onReport: () -> Unit = {},
     ) {
@@ -129,6 +153,7 @@ class ConversationDetailScreenTest {
                     onOpenProfile = onOpenProfile,
                     onOpenPrivateAlbum = onOpenPrivateAlbum,
                     onTogglePrivateAlbumShare = onTogglePrivateAlbumShare,
+                    onToggleMute = onToggleMute,
                 )
             }
         }

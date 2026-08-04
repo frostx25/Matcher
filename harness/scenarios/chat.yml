@@ -1,4 +1,4 @@
-version: 5
+version: 6
 domain: direct-chat
 
 scenarios:
@@ -208,3 +208,72 @@ scenarios:
       - direct_opening_consequence_visible: true
       - empty_first_message_send_enabled: false
       - recipient_acceptance_required: false
+
+  - id: CHAT-016-media-choices
+    name: Compositor separa foto da liberação de álbum
+    given:
+      - conversation_state: active
+      - viewer_private_album_available: true
+    when:
+      - open_media_action: true
+    then:
+      - select_photo_action_visible: true
+      - share_or_revoke_album_action_visible: true
+      - selecting_photo_grants_album_access: false
+      - sharing_album_sends_photo_message: false
+
+  - id: CHAT-017-photo-idempotency-and-moderation
+    name: Foto de conversa é idempotente e privada durante moderação
+    given:
+      - conversation_state: active
+      - client_message_key: 70000000-0000-4000-8000-000000000001
+      - media_status: pending
+    when:
+      - repeat_same_photo_intent_twice: true
+    then:
+      - persisted_photo_messages: 1
+      - recipient_can_read_bytes: false
+      - sender_sees_status: pending
+      - approved_status_required_for_recipient: true
+
+  - id: CHAT-018-read-delivery-and-retry
+    name: Leitura e retry são autoritativos
+    given:
+      - conversation_state: active
+      - unread_messages_for_recipient: 2
+      - failed_local_message: true
+    when:
+      - recipient_opens_conversation: true
+      - sender_retries_failed_message: true
+    then:
+      - unread_messages_for_recipient: 0
+      - unrelated_conversation_unread_unchanged: true
+      - sender_status: read
+      - duplicate_message_created: false
+
+  - id: CHAT-019-muted-private-notification
+    name: Silêncio impede push e payload não expõe conteúdo
+    given:
+      - conversation_state: active
+      - recipient_muted_conversation: true
+    when:
+      - sender_sends_photo_or_text: true
+    then:
+      - message_persisted: true
+      - notification_outbox_created: false
+      - notification_contains_message_body: false
+      - notification_contains_media_path: false
+
+  - id: CHAT-020-report-specific-message
+    name: Mensagem ou foto pode ser denunciada sem expor bytes
+    given:
+      - conversation_state: active
+      - reporter_is_recipient: true
+      - target_message_kind: photo
+    when:
+      - report_target_message: true
+    then:
+      - moderation_case_created: true
+      - report_references_authorized_message_id: true
+      - reported_media_hidden_for_reporter: true
+      - sensitive_content_logged: false

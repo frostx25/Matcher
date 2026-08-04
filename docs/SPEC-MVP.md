@@ -107,6 +107,11 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - A lista de conversas mostra somente pares ativos, com mídia pública autorizada, nome, faixa aproximada e última mensagem truncada; quando vazia, orienta a voltar para `Perto` sem inventar solicitações, matches ou contatos sugeridos.
 - Antes da primeira mensagem, a pessoa vê o perfil destinatário, a quota restante e a consequência direta do envio. O botão principal ocupa a largura disponível, permanece desabilitado para texto vazio e usa o mesmo vocabulário do chat que será aberto.
 - Texto e fotos são suportados; mídia efêmera e chamadas ficam fora do MVP.
+- O botão de mídia do compositor abre duas intenções distintas: `Selecionar foto`, para enviar uma imagem somente nesta conversa, e `Liberar meu álbum`/`Revogar meu álbum`, para controlar o acesso ao álbum privado inteiro. Abrir um álbum recebido continua sendo uma terceira ação contextual e nunca é confundido com o envio de uma foto.
+- Cada tentativa de foto recebe no cliente uma chave UUID opaca reutilizada em retry. O servidor associa essa chave, o remetente e a conversa a no máximo uma mensagem, valida o caminho privado reservado e não permite que repetições criem mensagens ou objetos duplicados.
+- Fotos de conversa começam em `pending`. O remetente vê o estado `Em análise`; o destinatário recebe somente um placeholder sem bytes. Apenas `approved` pode ser baixada pelos dois participantes. `adult`, `abusive`, `removed` e bloqueio impedem novas leituras.
+- Mensagens apresentam estados locais `sending` e `failed` e estados autoritativos `sent`, `delivered` e `read`. Falha preserva a intenção e oferece reenvio manual com a mesma chave; o app nunca repete automaticamente uma foto inteira depois de resposta indeterminada.
+- Abrir a conversa marca como lidas somente as mensagens recebidas daquela conversa. A lista mostra contagem de não lidas calculada pelo servidor; Realtime apenas invalida os dados e não concede acesso.
 - Mensagens em conversas já ativas não consomem novas aberturas.
 
 ### 3.5 Quota e planos
@@ -122,6 +127,9 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 
 - Bloquear e denunciar a partir do perfil e da conversa.
 - Silenciar conversa.
+- Silenciar é uma preferência por participante confirmada pelo servidor. A notificação de mensagem nunca inclui texto, imagem, URL de mídia, nome de objeto privado ou detalhes de denúncia; o padrão é uma prévia neutra (`Nova mensagem`).
+- O backend registra uma entrega pendente em outbox apenas quando o destinatário não silenciou a conversa. O envio efetivo por FCM depende de credenciais de infraestrutura fora do APK e uma falha de push nunca altera o estado ou a visibilidade da mensagem.
+- Mensagem, foto de conversa, perfil e álbum privado podem ser denunciados separadamente. A denúncia referencia IDs opacos, preserva evidência com acesso restrito e oculta imediatamente o conteúdo denunciado para o denunciante.
 - Limites por usuário, dispositivo, IP, perfil destinatário e intervalo de tempo.
 - Detecção de spam, mensagens repetitivas, criação em massa e evasão de banimento.
 - Painel de moderação com fila, evidência, histórico e auditoria.
@@ -159,13 +167,21 @@ A primeira mensagem torna a conversa ativa sem aceite prévio. O destinatário p
 
 Extra e Pro aumentam acesso pago, mas não removem bloqueio, denúncia, rate limit, moderação ou suspensão.
 
+### BR-CHAT-05 — foto privada e idempotente
+
+Uma foto de conversa é um recurso separado do álbum. Reserva, upload e finalização usam caminho privado vinculado ao remetente, conversa e chave idempotente. O destinatário não recebe bytes antes de `approved`; bloquear, suspender, remover ou denunciar revoga a leitura imediatamente.
+
+### BR-CHAT-06 — leitura, silêncio e notificação privada
+
+O servidor registra leitura por participante e deriva não lidas sem confiar no contador do cliente. Silenciar impede novas entradas de push para aquela pessoa, sem impedir a mensagem. Payloads de push são neutros e nunca carregam conteúdo sensível.
+
 ### BR-LOC-01 — privacidade geográfica
 
 O backend usa região/índice espacial reduzido para descoberta. Latitude e longitude exatas, quando inevitáveis para uma operação curta, não são expostas ao usuário nem persistidas como atributo público.
 
 ### BR-DATA-01 — exclusão
 
-Excluir conta remove ou anonimiza dados associados conforme a política de retenção documentada, incluindo perfil, fotos, conversas e entitlements, salvo retenções justificadas para segurança ou obrigação legal.
+Excluir conta torna a conta indisponível imediatamente, remove o perfil da descoberta, encerra conversas e revoga concessões. A remoção ou anonimização física posterior é idempotente e segue a política de retenção documentada para perfil, fotos, mensagens e entitlements, salvo retenções justificadas para segurança ou obrigação legal.
 
 ### BR-AGE-01 — ativação pelo onboarding básico
 
@@ -280,11 +296,16 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-05:** a conversa ativa mantém identidade pública, voltar, álbum contextual e segurança acessíveis sem rolar; abrir álbum recebido e liberar/revogar o álbum próprio são operações separadas e nenhuma miniatura privada aparece no chat.
 - **AC-CHAT-06:** bloquear e denunciar ficam disponíveis no menu de segurança; o compositor acompanha o teclado, recusa texto vazio e só limpa uma mensagem depois de o repositório confirmar o envio.
 - **AC-CHAT-07:** a lista exibe apenas conversas ativas e, quando vazia, oferece voltar à descoberta; o diálogo da primeira mensagem identifica o destinatário, mostra a quota, explica que o envio abre a conversa sem aceite e mantém o botão principal desabilitado para texto vazio.
+- **AC-CHAT-08:** o compositor oferece `Selecionar foto` e liberar/revogar o álbum como ações diferentes; selecionar foto não cria concessão de álbum e liberar o álbum não envia nem revela miniatura privada no histórico.
+- **AC-CHAT-09:** repetir a mesma chave de envio de foto produz uma única mensagem; enquanto `pending`, o destinatário não lê bytes, e somente `approved` é baixável pelos participantes ativos e não bloqueados.
+- **AC-CHAT-10:** o remetente distingue `enviando`, `enviada`, `entregue`, `lida` e `falhou`; uma falha permite retry manual sem duplicar a mensagem.
+- **AC-CHAT-11:** abrir uma conversa zera somente suas não lidas; silenciar impede a criação de novas entregas push para o participante, mas não impede novas mensagens ou a atualização por Realtime.
+- **AC-CHAT-12:** a notificação usa texto neutro e não inclui corpo de mensagem, bytes, URL, caminho de Storage ou detalhes livres; denunciar mensagem ou foto cria um caso referenciando somente IDs autorizados.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.
 - **AC-BILL-01:** entitlement pago só é ativado após validação de compra no backend.
-- **AC-DATA-01:** usuário encontra exclusão de conta dentro do app e por link externo.
+- **AC-DATA-01:** o usuário encontra a exclusão dentro do app; ao confirmar, a conta deixa de autenticar/agir imediatamente, sai da descoberta, fecha conversas e revoga acessos, enquanto a limpeza física segue uma fila privada idempotente e retenções justificadas.
 
 ## 7. Fora do MVP
 

@@ -1323,6 +1323,24 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun accountDeletionIsRequestedBeforeTheLocalSessionIsClosed() = runTest(dispatcher) {
+        val auth = FakeAuthGateway(MatcherSession.SignedIn("user-test"))
+        val profiles = FakeProfileGateway(initialProfile = testProfile())
+        val viewModel = viewModel(
+            auth = auth,
+            profiles = profiles,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+
+        viewModel.deleteAccount()
+        advanceUntilIdle()
+
+        assertEquals(1, profiles.accountDeletionRequests)
+        assertEquals(MatcherSession.SignedOut, auth.session.value)
+    }
+
+    @Test
     fun diditUrlValidationRequiresExactHttpsHostAndStandardPort() {
         assertTrue(isTrustedAgeVerificationUrl("https://verify.didit.me/session/synthetic"))
         assertTrue(isTrustedAgeVerificationUrl("https://verify.didit.me:443/session/synthetic"))
@@ -1398,6 +1416,7 @@ private class FakeProfileGateway(
     var ignoreNextPageCancellation = false
     var updateGenderGate: CompletableDeferred<Unit>? = null
     var ignoreUpdateGenderCancellation = false
+    var accountDeletionRequests = 0
     var genderSettings = GenderSettings(
         genderIdentityIds = listOf("non_binary"),
         genderVisible = true,
@@ -1481,6 +1500,11 @@ private class FakeProfileGateway(
         )
         profile = updatedProfile
         return updatedProfile
+    }
+
+    override suspend fun requestAccountDeletion(): Boolean {
+        accountDeletionRequests += 1
+        return true
     }
 }
 

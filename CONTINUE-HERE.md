@@ -72,6 +72,10 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - Bloqueio e denúncia ficam agrupados no menu superior, sempre disponíveis e independentes de assinatura.
 - O compositor permanece fixo com o teclado, rejeita mensagem vazia, preserva o rascunho após falha e limpa somente depois da confirmação do repositório.
 - O modo remoto atualiza os acessos de álbum ao entrar no chat e continua usando as operações autoritativas existentes.
+- O compositor agora separa `Selecionar foto` de `Liberar/Revogar meu álbum`, como duas intenções diferentes; abrir álbum recebido permanece contextual e nenhuma miniatura privada do álbum aparece na conversa.
+- Fotos de conversa usam upload privado de até 5 MB, chave idempotente, moderação pendente e retry manual sem duplicação. Somente uma foto `approved` pode ser aberta pelos participantes ativos.
+- Mensagens exibem `enviando`, `enviada`, `entregue`, `lida` ou `falhou`; a lista mostra não lidas e a conversa permite silenciar notificações.
+- O menu de segurança aceita denúncia do perfil ou de uma mensagem/foto específica, além do bloqueio já existente.
 
 ### Lista e primeira mensagem
 
@@ -87,6 +91,10 @@ Mantivemos a identidade visual própria do Matcher em rosa, ameixa e preto. Não
 - Migração `20260803130000_private_album_upload_reservation_leases.sql` aplicada somente no ambiente de desenvolvimento.
 - Função Edge `private-album-media` mais recente implantada no ambiente de desenvolvimento.
 - Smoke test real no Samsung: foto sintética enviada, exibida e depois removida; o álbum voltou de 5 para 4 itens.
+- Migração `20260804150000_chat_media_delivery_safety.sql` aplicada no `Matcher Dev`, com 25/25 asserções hospedadas.
+- Migração `20260804160000_account_deletion_request.sql` aplicada no `Matcher Dev`, com 11/11 asserções hospedadas.
+- A exclusão de conta está disponível no Perfil, torna a conta indisponível imediatamente e agenda a limpeza física em fila privada.
+- A outbox de push usa somente `Matcher`/`Nova mensagem`; o worker FCM real ainda depende de criar e configurar o projeto Firebase e suas credenciais fora do APK.
 
 ## Supabase
 
@@ -108,8 +116,8 @@ Comando executado com sucesso:
 Resultados:
 
 - Build concluído com sucesso.
-- 89 testes unitários aprovados, sem falhas ou testes ignorados.
-- 31 testes instrumentados compilados. Os 3 testes da conversa ativa passaram no Samsung; os 3 testes novos da lista/primeira mensagem foram compilados, mas não executados no runner para preservar a sessão remota.
+- 92 testes unitários aprovados, sem falhas ou testes ignorados.
+- 32 testes instrumentados compilados. Os 4 testes da conversa ativa passaram no Samsung, incluindo a separação entre `Selecionar foto`, álbum e silenciamento.
 - Lint: 0 erros e 7 avisos relacionados apenas a versões/API alvo.
 - Cenários YAML do harness validados.
 - `git diff --check` aprovado, com apenas avisos de conversão CRLF.
@@ -122,14 +130,14 @@ APK atual:
 
 SHA-256:
 
-`83741EE9FD19111D9130BD58EF8650ED7074C38505BAB576BC8D95C90B15DBD1`
+`BE6E8780A51D7D18B1D8545C6A8D439821F9B8E06ADF95BEEA0B3A6CCBF1B9B4`
 
 A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preservou a sessão e a lista vazia, o retorno para `Perto` e o diálogo da primeira mensagem foram validados com o backend real. Um texto sintético foi digitado somente para conferir o teclado e cancelado sem envio.
 
 ## Próximos passos recomendados
 
-1. Implementar o envio moderado de fotos na conversa, hoje previsto no produto mas ainda fora do adapter Android atual.
-2. Adicionar estados de entrega/erro e indicadores de mensagens não lidas sem registrar conteúdo sensível em telemetria.
+1. Integrar um worker FCM à outbox neutra quando existir um projeto Firebase separado e credenciais de servidor.
+2. Integrar o serviço de moderação que chama `moderate_chat_media`; enquanto isso, fotos novas permanecem pendentes por segurança.
 3. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
 4. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
 5. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.

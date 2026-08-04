@@ -53,6 +53,18 @@ class MatcherViewModel(
         return result is SendMessageResult.Sent
     }
 
+    fun sendPhoto(conversationId: String, jpegBytes: ByteArray): Boolean {
+        val result = repository.sendPhoto(currentUserId, conversationId, jpegBytes)
+        val error = when (result) {
+            is SendMessageResult.Sent -> null
+            SendMessageResult.InvalidMessage -> "Escolha uma foto válida."
+            SendMessageResult.NotAllowed -> "Esta conversa não permite novas mensagens."
+            SendMessageResult.NotFound -> "A conversa não está mais disponível."
+        }
+        refresh(error)
+        return result is SendMessageResult.Sent
+    }
+
     fun blockUser(targetUserId: String): Boolean {
         val blocked = repository.blockUser(currentUserId, targetUserId)
         refresh(if (blocked) null else "Não foi possível bloquear este perfil.")
