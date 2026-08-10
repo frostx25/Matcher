@@ -279,12 +279,16 @@ class SupabasePrivateAlbumGateway(
     override suspend fun downloadPrivateAlbumImage(itemId: String): ByteArray {
         val normalizedItemId = requireUuid(itemId, "INVALID_PRIVATE_ALBUM_ITEM")
         currentUserId()
+        val accessToken = requireNotNull(client.auth.currentSessionOrNull()) {
+            "AUTH_REQUIRED"
+        }.accessToken
         val response = client.functions.invoke(
             function = PRIVATE_ALBUM_MEDIA_FUNCTION,
         ) {
             method = HttpMethod.Get
             url.parameters.append("item_id", normalizedItemId)
             headers.append(HttpHeaders.Accept, PRIVATE_ALBUM_ACCEPT_TYPES)
+            headers[HttpHeaders.Authorization] = "Bearer $accessToken"
             headers.append(HttpHeaders.CacheControl, "no-store")
             headers.append(HttpHeaders.Pragma, "no-cache")
         }
@@ -383,11 +387,15 @@ class SupabasePrivateAlbumGateway(
     }
 
     private suspend fun invokePrivateAlbumDelete(body: JsonObject): Boolean {
+        val accessToken = requireNotNull(client.auth.currentSessionOrNull()) {
+            "AUTH_REQUIRED"
+        }.accessToken
         val response = client.functions.invoke(
             function = PRIVATE_ALBUM_DELETE_FUNCTION,
             body = body,
             headers = Headers.build {
                 append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                this[HttpHeaders.Authorization] = "Bearer $accessToken"
                 append(HttpHeaders.CacheControl, "no-store")
                 append(HttpHeaders.Pragma, "no-cache")
             },

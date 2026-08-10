@@ -155,6 +155,8 @@ scenarios:
       - discovery_columns_phone_portrait: 3
       - discovery_columns_wide_screen_minimum: 5
       - own_profile_available_from_header_avatar: true
+      - own_profile_avatar_contained_in_circular_frame: true
+      - portrait_avatar_crop_alignment: top_center
       - filters_available_from_header: true
       - quota_outside_profile_cards: true
       - exact_distance_visible: false

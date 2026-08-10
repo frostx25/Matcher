@@ -136,6 +136,21 @@ scenarios:
       - sensitive_content_written_to_logs: false
       - unrelated_grants_changed_without_moderation_decision: false
 
+  - id: ALBUM-008b-report-specific-photo
+    name: Destinatário denuncia somente uma foto do álbum
+    given:
+      - reporter: user-free
+      - reporter_has_active_grant: true
+      - album_contains: [synthetic-item-a, synthetic-item-b]
+    when:
+      - reporter_selects_photo: synthetic-item-b
+      - reporter_confirms_report: true
+    then:
+      - moderation_case_created_immediately: true
+      - preserved_evidence_items: [synthetic-item-b]
+      - unrelated_album_items_exposed_to_reviewer: false
+      - reporter_grant_active: false
+
   - id: ALBUM-009-moderation-removal-wins
     name: Remoção por moderação prevalece sobre concessões
     given:

@@ -4,6 +4,7 @@ import android.util.Base64
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.MyPrivateAlbumScreen
 import com.matcher.app.ui.ReceivedPrivateAlbumScreen
@@ -132,6 +134,8 @@ class PrivateAlbumScreensTest {
 
         composeRule.onNodeWithText("10/10 fotos · acesso individual").assertIsDisplayed()
         composeRule.onNodeWithTag("add-private-album-photo").assertIsNotEnabled()
+        composeRule.onNodeWithTag("my-private-album")
+            .performScrollToNode(hasText("O álbum chegou ao limite de 10 fotos."))
         composeRule.onNodeWithText("O álbum chegou ao limite de 10 fotos.").assertIsDisplayed()
         composeRule.onAllNodesWithContentDescription("Foto privada")
             .onFirst()
@@ -222,13 +226,38 @@ class PrivateAlbumScreensTest {
                     loading = false,
                     errorMessage = null,
                     onBack = {},
-                    onReport = {},
+                    onReport = { _, _ -> },
                 )
             }
         }
 
         composeRule.onNodeWithTag("private-album-invalid-photo-${corrupt.id}").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Imagem privada indisponível").assertIsDisplayed()
+    }
+
+    @Test
+    fun reportCanTargetOnlyOnePrivatePhoto() {
+        val first = PrivateAlbumPhotoUi("10000000-0000-4000-8000-000000000001", 0, byteArrayOf(0x13))
+        val second = PrivateAlbumPhotoUi("10000000-0000-4000-8000-000000000002", 1, byteArrayOf(0x37))
+        var reportedItemId: String? = null
+        composeRule.setContent {
+            MatcherTheme {
+                ReceivedPrivateAlbumScreen(
+                    ownerName = "Perfil sintético",
+                    photos = listOf(first, second),
+                    loading = false,
+                    errorMessage = null,
+                    onBack = {},
+                    onReport = { _, itemId -> reportedItemId = itemId },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("report-private-album").performClick()
+        composeRule.onNodeWithTag("report-private-photo-${second.id}").performClick()
+        composeRule.onNodeWithTag("confirm-private-album-report").performClick()
+
+        composeRule.runOnIdle { assertEquals(second.id, reportedItemId) }
     }
 
     @Test

@@ -33,3 +33,6 @@ verify_jwt = false
 
 [functions.profile-photo-moderation]
 verify_jwt = false
+
+[functions.moderation-profile-photos]
+verify_jwt = false

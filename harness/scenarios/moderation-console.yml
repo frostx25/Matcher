@@ -1,0 +1,50 @@
+version: 1
+feature: moderation-console
+scenarios:
+  - id: MOD-CONSOLE-001-role-boundaries
+    given:
+      - active_reviewer: reviewer-a
+      - active_admin: admin-a
+    then:
+      - reviewer_can_decide_content: true
+      - reviewer_can_suspend_or_ban: false
+      - reviewer_can_manage_staff: false
+      - admin_can_manage_accounts_and_staff: true
+
+  - id: MOD-CONSOLE-002-report-evidence-is-narrow
+    given:
+      - reported_message: synthetic-message-id
+      - reported_private_album_item: synthetic-album-item-id
+    then:
+      - listed_message_is_exact_report_evidence: true
+      - listed_album_objects_are_preserved_case_evidence_only: true
+      - broad_album_or_storage_listing_allowed: false
+      - preview_is_short_lived_and_signed: true
+
+  - id: MOD-CONSOLE-003-account-sanctions
+    given:
+      - active_admin: admin-a
+      - target_account: synthetic-user-a
+    when:
+      - actions: [warn, suspend, ban, reactivate]
+    then:
+      - every_action_is_audited: true
+      - suspended_or_banned_account_status: suspended
+      - reactivation_is_explicit: true
+      - client_clock_reactivates_account: false
+
+  - id: MOD-CONSOLE-004-staff-last-admin
+    given:
+      - active_admin_count: 1
+    when:
+      - last_admin_is_deactivated_or_demoted: true
+    then:
+      - action_rejected: true
+      - audit_event_created: false
+
+  - id: MOD-CONSOLE-005-safe-history-and-metrics
+    then:
+      - history_has_actor_action_subject_and_time: true
+      - history_has_free_text_message_or_storage_path: false
+      - metrics_are_aggregated: true
+      - metrics_expose_private_content: false

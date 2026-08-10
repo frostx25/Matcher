@@ -745,9 +745,9 @@ internal fun RemoteDiscoveryScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(48.dp)
                         .border(2.dp, Pink, CircleShape)
-                        .padding(3.dp)
+                        .padding(4.dp)
                         .clip(CircleShape)
                         .clickable(onClick = onOpenAccount)
                         .testTag("open-account-from-discovery"),
@@ -755,7 +755,7 @@ internal fun RemoteDiscoveryScreen(
                     RemoteProfileAvatar(
                         imageUrl = viewerAvatarUrl,
                         initials = viewerInitials,
-                        size = 36.dp,
+                        size = 40.dp,
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
@@ -1088,13 +1088,11 @@ private fun RemoteProfileScreen(
             Text("${profile.displayName}, ${profile.age}", color = MaterialTheme.colorScheme.onBackground, fontSize = 23.sp, fontWeight = FontWeight.Bold)
             Text(profile.intent, color = Pink)
             Text(profile.bio.ifBlank { "Adicione uma bio para contar mais sobre você." }, color = TextSecondary)
-            Text(
-                profilePhotoStatusText(
+            ProfilePhotoStatusCard(
+                presentation = profilePhotoStatusPresentation(
                     status = profile.avatarModerationStatus,
                     hasApprovedPhoto = profile.avatarPath != null,
                 ),
-                color = TextSecondary,
-                fontSize = 12.sp,
                 modifier = Modifier.testTag("profile-photo-status"),
             )
             OutlinedButton(
@@ -1296,6 +1294,7 @@ private fun RemoteProfileAvatar(
                 model = imageUrl,
                 contentDescription = "Foto do perfil",
                 contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -1308,23 +1307,97 @@ private fun RemoteProfileAvatar(
     }
 }
 
-private fun profilePhotoStatusText(status: String, hasApprovedPhoto: Boolean): String = when (status) {
-    "pending" -> "Foto em análise — somente você pode visualizá-la agora."
-    "approved" -> "Foto aprovada e visível no perfil."
-    "blocked_adult" -> if (hasApprovedPhoto) {
-        "Nova foto adulta ocultada. Sua foto aprovada anterior continua visível."
-    } else {
-        "Foto adulta ocultada. Escolha outra imagem."
-    }
-    "blocked_abusive" -> if (hasApprovedPhoto) {
-        "Nova foto abusiva bloqueada. Sua foto aprovada anterior continua visível."
-    } else {
-        "Foto abusiva bloqueada. Escolha outra imagem."
-    }
+internal data class ProfilePhotoStatusPresentation(
+    val title: String,
+    val detail: String,
+    val accent: Color,
+)
+
+internal fun profilePhotoStatusPresentation(
+    status: String,
+    hasApprovedPhoto: Boolean,
+): ProfilePhotoStatusPresentation = when (status) {
+    "pending" -> ProfilePhotoStatusPresentation(
+        title = "Em análise",
+        detail = if (hasApprovedPhoto) {
+            "Sua foto atual continua visível enquanto analisamos a nova."
+        } else {
+            "Somente você consegue ver esta foto enquanto ela é analisada."
+        },
+        accent = Pink,
+    )
+    "review" -> ProfilePhotoStatusPresentation(
+        title = "Aguardando revisão",
+        detail = if (hasApprovedPhoto) {
+            "Sua foto atual continua visível enquanto concluímos a revisão."
+        } else {
+            "Sua foto continua privada até a conclusão da revisão."
+        },
+        accent = Color(0xFFFFB74D),
+    )
+    "approved" -> ProfilePhotoStatusPresentation(
+        title = "Foto aprovada",
+        detail = "Ela está visível no seu perfil.",
+        accent = Color(0xFF65D6B2),
+    )
+    "blocked_adult" -> ProfilePhotoStatusPresentation(
+        title = "Foto recusada por conteúdo adulto",
+        detail = if (hasApprovedPhoto) {
+            "Sua foto aprovada anterior continua visível. Escolha outra imagem quando quiser."
+        } else {
+            "A imagem ficou privada. Escolha outra foto para o perfil."
+        },
+        accent = Color(0xFFFF8A80),
+    )
+    "blocked_abusive" -> ProfilePhotoStatusPresentation(
+        title = "Foto recusada por conteúdo abusivo",
+        detail = if (hasApprovedPhoto) {
+            "Sua foto aprovada anterior continua visível. Escolha outra imagem quando quiser."
+        } else {
+            "A imagem ficou privada. Escolha outra foto para o perfil."
+        },
+        accent = Color(0xFFFF8A80),
+    )
     else -> if (hasApprovedPhoto) {
-        "Foto aprovada e visível no perfil."
+        ProfilePhotoStatusPresentation(
+            title = "Foto aprovada",
+            detail = "Ela está visível no seu perfil.",
+            accent = Color(0xFF65D6B2),
+        )
     } else {
-        "Nenhuma foto selecionada."
+        ProfilePhotoStatusPresentation(
+            title = "Adicione uma foto",
+            detail = "Escolha uma imagem permitida para aparecer no seu perfil.",
+            accent = TextSecondary,
+        )
+    }
+}
+
+@Composable
+private fun ProfilePhotoStatusCard(
+    presentation: ProfilePhotoStatusPresentation,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(presentation.accent.copy(alpha = 0.12f))
+            .border(1.dp, presentation.accent.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(presentation.accent),
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(presentation.title, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(presentation.detail, color = TextSecondary, fontSize = 12.sp)
+        }
     }
 }
 

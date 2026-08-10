@@ -1,5 +1,15 @@
 # Próxima sessão
 
+## Checkpoint de 10/08/2026 — central de segurança
+
+- A central web publicada está autenticando por OTP e oferece visão geral, fila humana de fotos, denúncias, busca e sanções de contas, auditoria e equipe com separação entre revisor e administrador.
+- As migrations `20260805090000_owner_profile_photo_review_state.sql`, `20260805100000_profile_photo_human_review_queue.sql` e `20260805120000_moderation_security_console.sql` compõem este checkpoint.
+- A Edge Function `moderation-profile-photos` atende decisões e prévias privadas; listagens somente leitura usam RPCs protegidas pelo banco.
+- O Android permite denunciar todo o álbum privado ou selecionar uma foto específica. O bearer da sessão é enviado explicitamente nas funções de mídia e remoção privadas.
+- O smoke autenticado removeu o álbum sintético denunciado e resolveu o caso. A visão geral terminou com zero denúncias e zero álbuns denunciados; auditoria registrou `remove album` e `resolve case`.
+- Validação concluída: 96/96 testes unitários, 33/33 instrumentados no Samsung, lint e APK aprovados, painel com 2/2 testes e build aprovado, sem erro de console ou `FATAL EXCEPTION`.
+- Próxima fase: separar produção, configurar CI/CD e observabilidade, definir os serviços contínuos da VM e preparar a operação jurídica/moderação para lançamento fechado.
+
 Checkpoint de 04/08/2026. O código inclui autenticação por OTP, onboarding por ano, verificação documental opcional, foto pública moderada, conversa direta, identidade/preferência de gênero e álbum privado com concessão individual.
 
 ## Publicado no Matcher Dev

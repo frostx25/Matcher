@@ -818,7 +818,7 @@ class RemoteMatcherViewModel(
         }
     }
 
-    fun reportPrivateAlbum(details: String) {
+    fun reportPrivateAlbum(details: String, itemId: String? = null) {
         val received = mutableState.value.privateAlbum.destination as? PrivateAlbumDestination.Received
             ?: return
         val sessionToken = currentSessionWorkToken()
@@ -827,6 +827,7 @@ class RemoteMatcherViewModel(
                 albumId = received.albumId,
                 reason = PrivateAlbumReportReason.InappropriatePhoto,
                 details = details,
+                itemId = itemId,
             )
             ensurePrivateAlbumWorkIsCurrent(token)
             ensureSessionWorkIsCurrent(sessionToken)

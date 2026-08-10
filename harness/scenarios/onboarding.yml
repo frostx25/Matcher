@@ -543,6 +543,67 @@ scenarios:
       - category_scores_logged: false
       - age_verification_granted: false
 
+  - id: PHOTO-009-owner-moderation-feedback
+    name: Titular recebe um estado claro e privado da moderação da foto
+    given:
+      - photo_candidate_private: true
+      - public_photo_slots: 1
+    when:
+      - get_my_profile_photo_state: true
+    then:
+      - queued_or_processing_status_visible_to_owner: Em análise
+      - review_automation_state_visible_to_owner: Aguardando revisão
+      - approved_status_visible_to_owner: Foto aprovada
+      - blocked_adult_status_visible_to_owner: Foto recusada por conteúdo adulto
+      - blocked_abusive_status_visible_to_owner: Foto recusada por conteúdo abusivo
+      - automation_state_returned_to_third_parties: false
+      - approved_photo_remains_public_while_candidate_pending_or_review: true
+
+  - id: MOD-001-review-queue-is-staff-only
+    name: Fila de revisão humana não expõe candidatas a contas comuns
+    given:
+      - profile_photo_status: pending
+      - profile_photo_automation_state: review
+      - requester_is_active_moderator: false
+    when:
+      - list_profile_photo_review_queue: true
+    then:
+      - request_denied: true
+      - candidate_path_returned: false
+      - signed_preview_url_returned: false
+      - storage_listing_granted: false
+
+  - id: MOD-002-human-photo-decision-is-atomic-and-audited
+    name: Moderadora decide somente a candidata ainda exibida na fila
+    given:
+      - requester_is_active_moderator: true
+      - profile_photo_status: pending
+      - profile_photo_automation_state: review
+      - candidate_path_matches_visible_queue_item: true
+      - existing_approved_photo: true
+    when:
+      - decide_profile_photo_review: blocked_adult
+    then:
+      - candidate_remains_private: true
+      - existing_approved_photo_remains_public: true
+      - automation_state: completed
+      - audit_event_has_actor_and_normalized_decision: true
+      - raw_image_or_signed_url_written_to_audit: false
+
+  - id: MOD-003-stale-human-photo-decision-is-rejected
+    name: Decisão humana atrasada não atinge uma nova candidata
+    given:
+      - requester_is_active_moderator: true
+      - visible_candidate_path: candidate_v1
+      - current_candidate_path: candidate_v2
+      - profile_photo_automation_state: review
+    when:
+      - decide_profile_photo_review_for: candidate_v1
+    then:
+      - decision_applied: false
+      - candidate_v2_status: pending
+      - audit_event_created: false
+
   - id: PROFILE-001-local-summary
     name: Perfil local exibe apenas dados fornecidos pelo usuário
     given:

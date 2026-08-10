@@ -54,11 +54,20 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 - Cada campo possui visibilidade configurável; o usuário pode preferir não informar.
 - A foto pode ser qualquer imagem permitida pela política de conteúdo e não precisa representar um rosto. A mídia do Didit nunca vira foto de perfil.
 - Cada versão de foto é privada enquanto estiver `pending`; terceiros recebem um placeholder cinza. Somente uma decisão `approved` torna aquela versão visível a terceiros. Decisões `adult` ou `abusive` mantêm a versão privada e o placeholder.
+- O Perfil informa ao titular, sem expor a candidata a terceiros, um estado acionável: `Em análise` enquanto a automação estiver na fila ou processando, `Aguardando revisão` quando ela encaminhar a candidata para moderação humana, `Foto aprovada` após publicação e a razão normalizada quando houver bloqueio por conteúdo adulto ou abusivo. A resposta do estado da foto inclui o estado de automação somente para o titular; ela não é parte de payload público.
 - A triagem da única foto pública usa exclusivamente o endpoint gratuito de moderação de imagens da OpenAI com `omni-moderation-latest`. `sexual` classifica a candidata como `adult`; `sexual/minors`, `violence` ou `violence/graphic` classificam como `abusive`; outra categoria sinalizada encaminha para revisão humana. Resposta incompleta, inválida ou indisponível mantém a mídia privada e entra em retry limitado.
 - A decisão normalizada é autoritativa para a visibilidade da foto, mas não comprova idade nem identidade. Resposta bruta, scores, bytes, base64 e chave do provedor não são persistidos nem registrados em logs.
 - Uma nova versão fica em moderação separada e não substitui a versão aprovada atual. A troca pública ocorre somente depois de a nova versão receber `approved`; se permanecer `pending` ou receber `adult`/`abusive`, a versão aprovada anterior continua visível.
 - O upload da candidata aceita a pré-checagem real do Storage com `mimetype` e `contentLength`, revalida o metadado final `size` e limita a imagem a 5 MB; nenhuma dessas etapas cria um segundo espaço público de foto.
 - A triagem automática cautelosa é aplicada somente à candidata da foto pública de perfil. Fotos de conversa e imagens do álbum privado nunca são encaminhadas ao classificador automático; continuam sujeitas à Política de Conteúdo, denúncia e remoção por moderação.
+- A fila interna de fotos reúne somente candidatas `pending` cujo processamento automático chegou a `review`. Ela é acessível apenas a contas ativas explicitamente cadastradas como moderadoras. O painel interno nunca usa listagem ampla do Storage: pede uma prévia assinada, de curta duração e vinculada ao item selecionado.
+- A moderadora pode aprovar, bloquear por conteúdo adulto ou bloquear por conteúdo abusivo. A decisão compara a candidata que estava na tela, bloqueia concorrência com outra decisão ou novo upload e grava ator, decisão e instante em auditoria. Nenhuma observação livre, URL assinada, byte, score ou resposta bruta do provedor entra no log de auditoria.
+- A central interna reúne filas separadas para fotos públicas, denúncias e álbuns privados denunciados, histórico, busca de contas, indicadores e equipe. Revisores podem decidir conteúdo e casos; somente administradores podem advertir, suspender, banir, reativar contas ou alterar a equipe.
+- A fila de denúncias mostra contexto mínimo autorizado, motivo padronizado, reincidência, estado e evidência vinculada. Mensagens aparecem apenas quando forem a evidência exata da denúncia; álbuns privados nunca admitem navegação ampla e expõem somente os objetos preservados no caso por URLs assinadas de curta duração.
+- Advertência, suspensão, banimento, reativação, remoção de item/álbum, resolução e descarte de caso são decisões normalizadas e auditadas. Banimento mantém a conta suspensa indefinidamente até uma reativação administrativa explícita; suspensão temporária registra expiração, mas o servidor continua autoritativo para liberar a conta.
+- O histórico interno permite filtros por tipo de decisão, conta e período, sem incluir texto livre sensível, corpo de mensagem, URL assinada, caminho de Storage ou bytes. Reversões são novas ações auditadas e nunca alteram silenciosamente o evento original.
+- O painel encerra sessões inativas, exige nova autenticação para continuar e recomenda segundo fator para administradores. O backend limita paginação e frequência de decisões; sequências anormais de ações são registradas como sinal operacional sem bloquear automaticamente uma decisão legítima.
+- Indicadores internos exibem volumes de fila, decisões, tempo de espera e reincidência agregada. Não exibem conteúdo privado, coordenadas, mensagens ou dados biométricos.
 
 #### 3.2.1 Álbum privado
 
@@ -85,7 +94,7 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 ### 3.3 Descoberta
 
 - Grade paginada de perfis próximos.
-- No Android, a tela inicial apresenta a descoberta em uma grade densa de três colunas no telefone em modo retrato e aumenta progressivamente a quantidade de colunas em telas largas ou no modo paisagem. O topo mantém acesso direto ao próprio perfil, contexto de localização aproximada, quota de novas conversas e filtros; cada cartão mostra somente nome, idade, faixa de distância e intenção sobre a miniatura pública autorizada.
+- No Android, a tela inicial apresenta a descoberta em uma grade densa de três colunas no telefone em modo retrato e aumenta progressivamente a quantidade de colunas em telas largas ou no modo paisagem. O topo mantém acesso direto ao próprio perfil, contexto de localização aproximada, quota de novas conversas e filtros; o avatar próprio permanece inteiramente contido em sua moldura circular e, ao recortar fotos verticais, prioriza o topo central para preservar rostos. Cada cartão mostra somente nome, idade, faixa de distância e intenção sobre a miniatura pública autorizada.
 - Ordenação por proximidade aproximada, atividade recente e compatibilidade com preferências declaradas.
 - Filtros básicos por idade, identidade, intenção, tipo de relacionamento e verificação.
 - A preferência `looking_for_gender_ids` é privada e aplicada pelo servidor antes da paginação. “Todas as pessoas” não filtra por gênero; uma seleção específica inclui somente perfis cuja identidade publicada possua interseção com a seleção.
@@ -242,6 +251,8 @@ Toda listagem ou leitura revalida no servidor a conta, o bloqueio e a concessão
 
 Denunciar oculta o álbum para o denunciante, encerra sua concessão e cria caso auditável de moderação. Excluir item, álbum ou conta limpa metadados, concessões e Storage de modo idempotente. A interface alerta que capturas externas não podem ser impedidas e nunca promete recuperar cópias já obtidas.
 
+O destinatário pode denunciar o álbum inteiro ou selecionar uma foto específica. Quando uma foto é selecionada, somente o identificador desse item e a evidência preservada pelo servidor ficam vinculados ao caso; a central não recebe automaticamente as demais imagens do álbum. Toda denúncia cria imediatamente um `moderation_case` pendente, sem depender de sincronização do cliente.
+
 ### BR-ALBUM-05 — limite desta versão
 
 O limite de um álbum e dez imagens é imposto atomicamente no servidor, inclusive sob uploads concorrentes. Vídeo, acesso com expiração e visualização única não fazem parte desta versão.
@@ -314,6 +325,14 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-12:** a notificação usa texto neutro e não inclui corpo de mensagem, bytes, URL, caminho de Storage ou detalhes livres; denunciar mensagem ou foto cria um caso referenciando somente IDs autorizados.
 - **AC-CHAT-13:** uma instalação autenticada registra/rotaciona seu FID sem expô-lo; o worker entrega cada outbox sob lease, desativa instalação permanentemente inválida, repete somente falha transitória e respeita o silenciamento decidido antes da criação da outbox.
 - **AC-CHAT-14:** o worker de visão não reivindica nem baixa fotos de conversa ou do álbum privado; somente a candidata da foto pública de perfil pode entrar na triagem automática.
+- **AC-PHOTO-01:** o titular distingue `Em análise`, `Aguardando revisão`, `Foto aprovada`, bloqueio por conteúdo adulto e bloqueio por conteúdo abusivo. Uma candidata em análise ou revisão não fica visível a terceiros e não substitui uma foto já aprovada.
+- **AC-MOD-01:** somente moderadora ativa consegue listar candidatas em `review` ou pedir sua prévia temporária; contas comuns não recebem caminho, URL, nome de objeto ou metadado da fila.
+- **AC-MOD-02:** a decisão humana compara o caminho da candidata exibida, é atômica e auditada. Aprovar publica somente a candidata ainda atual; bloquear preserva uma foto anteriormente aprovada e mantém a candidata privada.
+- **AC-MOD-03:** revisor lista e resolve conteúdo/casos, mas recebe `403` ao tentar sancionar contas ou administrar equipe; administrador ativo pode executar essas ações com motivo normalizado e auditoria.
+- **AC-MOD-04:** a central lista somente evidências vinculadas a denúncias; uma denúncia de álbum recebe prévias temporárias dos objetos preservados e nunca autoriza listagem geral do álbum ou do bucket.
+- **AC-MOD-05:** histórico e indicadores omitem bytes, URLs, caminhos de Storage, corpo de mensagem e detalhes livres; filtros e paginação possuem limites definidos no servidor.
+- **AC-MOD-06:** suspender ou banir interrompe descoberta, conversa e acesso a álbuns. Reativar é uma ação administrativa explícita e auditada; desbloqueio automático por relógio não é decidido pelo cliente.
+- **AC-MOD-07:** somente administrador ativo altera a allowlist da equipe e não pode remover ou rebaixar o último administrador ativo.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.
@@ -334,6 +353,7 @@ O primeiro contrato de API deve cobrir:
 - `GET /age-verification/status`
 - `POST /age-verification/provider-callback` (webhook Didit servidor-servidor; a notificação é apenas gatilho e nunca concede selo pelo APK)
 - `POST /profile/photos` (cria uma nova versão privada em `pending`)
+- `GET /moderation/profile-photo-reviews` e `POST /moderation/profile-photo-reviews/{profile_id}/decision` (somente painel interno autenticado de moderadores; lista candidatas em revisão e aplica decisão humana auditada)
 - `GET /profiles/{id}/photos` (entrega mídia somente para versões `approved`; nos demais estados entrega placeholder a terceiros)
 - `PATCH /profile/gender` (altera identidade/autodescrição e sua visibilidade)
 - `PUT /profile/discovery-preferences` (substitui a preferência privada multi-seleção)

@@ -1,6 +1,9 @@
 package com.matcher.app
 
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -12,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.text.AnnotatedString
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.RemoteAuthScreen
 import com.matcher.app.ui.RemoteOnboardingScreen
@@ -121,7 +125,9 @@ class RemoteAuthScreenTest {
 
         composeRule.onNodeWithTag("remote-otp-input").performTextInput("123456")
         composeRule.runOnIdle { generation.longValue += 1 }
-        composeRule.onNodeWithTag("remote-otp-input").assertTextEquals("")
+        composeRule.onNodeWithTag("remote-otp-input").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.InputText, AnnotatedString("")),
+        )
     }
 
     @Test

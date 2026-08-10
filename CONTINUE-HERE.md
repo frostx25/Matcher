@@ -1,6 +1,6 @@
 # Matcher — continuidade em um novo chat
 
-Atualizado em: 2026-08-04
+Atualizado em: 2026-08-10
 
 ## Como retomar
 
@@ -144,12 +144,25 @@ A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preser
 
 ## Próximos passos recomendados
 
-1. Confirmar no Samsung que a foto recém-aprovada aparece após atualizar a tela de Perfil/Descoberta.
-2. Implementar a fila operacional de revisão humana para categorias sinalizadas que não mapeiam diretamente para `adult` ou `abusive`.
-3. Monitorar taxa de retry/429 e volume diário do endpoint de moderação sem registrar imagem, caminho privado ou resposta bruta.
-4. Decidir se o Matcher terá vários álbuns nomeados. Isso exige migração, alteração das APIs, políticas e testes; hoje existe no máximo um álbum por conta.
-5. Capturar um teste autenticado da função Edge com resposta 200 e conferir os cabeçalhos privados de cache.
-6. Preparar um projeto Supabase separado para produção, com segredos, builds, dados, backups, alertas, limites e processos de LGPD separados do desenvolvimento.
+1. Criar o ambiente `Matcher Prod` separado do desenvolvimento, com Supabase, segredos, builds, backups, alertas, limites e processos de LGPD próprios.
+2. Definir a função da VM: workers e rotinas operacionais, monitoramento, backups e serviços contínuos; manter banco, Auth, Storage e Realtime no Supabase nesta fase.
+3. Automatizar validação e implantação de migrations, Edge Functions, Android e painel sem colocar segredos no repositório.
+4. Ampliar os testes do painel para autenticação, filas, evidências, decisões, sanções, auditoria e expiração de sessão.
+5. Implementar observabilidade de retries, 429, falhas de push/moderação e crescimento das filas sem registrar conteúdo privado.
+6. Preparar Termos, Política de Privacidade, Política de Conteúdo, processo de apelação e operação de incidentes antes de abrir o aplicativo ao público.
+7. Decidir futuramente se o Matcher terá vários álbuns nomeados; hoje existe no máximo um álbum por conta.
+
+## Checkpoint de moderação e denúncias — 10/08/2026
+
+- Central de segurança publicada em `https://matcher-moderation-panel.vercel.app/`, com OTP, visão geral, revisão de fotos, denúncias, contas, histórico e equipe.
+- Fila humana implementada para candidatas de foto pública encaminhadas a `review`; prévias privadas expiram em 60 segundos.
+- Denúncia de álbum pode apontar o álbum inteiro ou somente uma foto, preservando apenas a evidência vinculada.
+- O Android envia explicitamente o bearer atual nas Edge Functions de leitura e remoção de álbum privado.
+- O estado da foto pública distingue análise automática, revisão humana, aprovação e bloqueios, preservando uma foto anterior aprovada.
+- Smoke real concluído: evidência privada carregada, álbum sintético removido, caso resolvido, fila zerada e ações registradas na auditoria.
+- Validação local: 96 testes unitários, lint, APK e compilação de testes instrumentados aprovados; 33/33 testes instrumentados passaram no Samsung SM-A315G sem `FATAL EXCEPTION`.
+- Painel: 2/2 testes e build de produção aprovados.
+- Os artefatos temporários de ADB e as imagens sintéticas usadas no smoke manual foram removidos antes do commit.
 
 ## Documentos importantes
 

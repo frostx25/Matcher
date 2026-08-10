@@ -260,9 +260,12 @@ class SupabaseProfileGateway(
     private suspend fun RemoteProfile.withOwnerPhotoState(
         state: ProfilePhotoState?,
     ): RemoteProfile {
-        val moderationStatus = state?.moderationStatus ?: "none"
+        val moderationStatus = when {
+            state?.moderationStatus == "pending" && state.automationState == "review" -> "review"
+            else -> state?.moderationStatus ?: "none"
+        }
         val renderPath = when (moderationStatus) {
-            "pending" -> state?.candidatePath
+            "pending", "review" -> state?.candidatePath
             "blocked_adult", "blocked_abusive" -> null
             else -> state?.approvedPath ?: avatarPath
         }
@@ -305,6 +308,7 @@ private data class SubmittedProfilePhoto(
 private data class ProfilePhotoState(
     @SerialName("candidate_path") val candidatePath: String? = null,
     @SerialName("moderation_status") val moderationStatus: String = "none",
+    @SerialName("automation_state") val automationState: String = "completed",
     @SerialName("approved_path") val approvedPath: String? = null,
 )
 

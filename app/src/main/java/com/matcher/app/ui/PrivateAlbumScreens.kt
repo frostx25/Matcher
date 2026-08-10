@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +44,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -736,7 +739,7 @@ internal fun ReceivedPrivateAlbumScreen(
     loading: Boolean,
     errorMessage: String?,
     onBack: () -> Unit,
-    onReport: (String) -> Unit,
+    onReport: (String, String?) -> Unit,
 ) {
     var showReport by rememberSaveable { mutableStateOf(false) }
     LazyVerticalGrid(
@@ -789,10 +792,11 @@ internal fun ReceivedPrivateAlbumScreen(
     if (showReport) {
         PrivateAlbumReportDialog(
             ownerName = ownerName,
+            photos = photos,
             onDismiss = { showReport = false },
-            onConfirm = {
+            onConfirm = { details, itemId ->
                 showReport = false
-                onReport(it)
+                onReport(details, itemId)
             },
         )
     }
@@ -873,16 +877,38 @@ private fun PrivatePhotoTile(
 @Composable
 private fun PrivateAlbumReportDialog(
     ownerName: String,
+    photos: List<PrivateAlbumPhotoUi>,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onConfirm: (String, String?) -> Unit,
 ) {
     var details by rememberSaveable { mutableStateOf("") }
+    var selectedItemId by rememberSaveable { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Denunciar álbum de $ownerName?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("A denúncia encerra seu acesso, bloqueia o conteúdo e abre uma análise de moderação.")
+                Text("O que você quer denunciar?", fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = selectedItemId == null,
+                        onClick = { selectedItemId = null },
+                        label = { Text("Álbum inteiro") },
+                        modifier = Modifier.testTag("report-entire-private-album"),
+                    )
+                    photos.sortedBy { it.position }.forEachIndexed { index, photo ->
+                        FilterChip(
+                            selected = selectedItemId == photo.id,
+                            onClick = { selectedItemId = photo.id },
+                            label = { Text("Foto ${index + 1}") },
+                            modifier = Modifier.testTag("report-private-photo-${photo.id}"),
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = details,
                     onValueChange = { details = it.take(1000) },
@@ -894,8 +920,9 @@ private fun PrivateAlbumReportDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(details.trim()) },
+                onClick = { onConfirm(details.trim(), selectedItemId) },
                 colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                modifier = Modifier.testTag("confirm-private-album-report"),
             ) { Text("Denunciar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
