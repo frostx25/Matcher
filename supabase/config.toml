@@ -2,8 +2,8 @@ project_id = "matcher"
 
 [auth]
 enabled = true
-site_url = "matcher://auth/callback"
-additional_redirect_urls = ["matcher://auth/callback"]
+site_url = "https://vibeali.shop"
+additional_redirect_urls = ["matcher://auth-callback", "https://vibeali.shop/auth/callback"]
 enable_signup = true
 
 [db.seed]
