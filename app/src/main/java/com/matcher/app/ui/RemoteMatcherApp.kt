@@ -99,6 +99,7 @@ internal fun RemoteMatcherApp(
     ageVerificationReturnSignal: Int = 0,
     notificationConversationId: String? = null,
     notificationConversationSignal: Int = 0,
+    appResumeSignal: Int = 0,
 ) {
     val context = LocalContext.current
     val client = remember { SupabaseBackend.client }
@@ -158,6 +159,10 @@ internal fun RemoteMatcherApp(
         if (state.session is MatcherSession.SignedIn) {
             remoteViewModel.onAgeVerificationReturn(ageVerificationReturnSignal)
         }
+    }
+
+    LaunchedEffect(appResumeSignal) {
+        if (appResumeSignal > 0) remoteViewModel.refreshOnResume()
     }
 
     LaunchedEffect(state.signedInStage, state.session) {
@@ -458,8 +463,12 @@ private fun RemoteHome(
     requestedConversationId: String? = null,
     requestedConversationSignal: Int = 0,
 ) {
-    val discoveryProfiles = state.discovery.profiles.map(RemoteProfile::toDemoProfile)
-    val favoriteProfiles = state.favoriteProfiles.map(RemoteProfile::toDemoProfile)
+    val discoveryProfiles = state.discovery.profiles
+        .map(RemoteProfile::toDemoProfile)
+        .excludingCurrentUser(currentUserId)
+    val favoriteProfiles = state.favoriteProfiles
+        .map(RemoteProfile::toDemoProfile)
+        .excludingCurrentUser(currentUserId)
     val remoteProfiles = (discoveryProfiles + favoriteProfiles).distinctBy(DemoProfile::id)
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedProfileId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1085,6 +1094,9 @@ internal fun discoveryColumnCountForWidth(widthDp: Int): Int = when {
     widthDp >= 480 -> 4
     else -> 3
 }
+
+internal fun List<DemoProfile>.excludingCurrentUser(currentUserId: String): List<DemoProfile> =
+    filterNot { it.id == currentUserId }
 
 @Composable
 private fun RemoteDiscoveryProfileCard(

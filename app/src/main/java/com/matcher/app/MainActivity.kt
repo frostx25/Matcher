@@ -18,6 +18,8 @@ class MainActivity : ComponentActivity() {
     private var ageVerificationReturnSignal by mutableIntStateOf(0)
     private var notificationConversationId by mutableStateOf<String?>(null)
     private var notificationConversationSignal by mutableIntStateOf(0)
+    private var appResumeSignal by mutableIntStateOf(0)
+    private var hasResumedOnce = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +36,7 @@ class MainActivity : ComponentActivity() {
                     ageVerificationReturnSignal = ageVerificationReturnSignal,
                     notificationConversationId = notificationConversationId,
                     notificationConversationSignal = notificationConversationSignal,
+                    appResumeSignal = appResumeSignal,
                 )
             }
         }
@@ -44,6 +47,15 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         recordAgeVerificationReturn(intent.data)
         recordNotificationConversation(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (hasResumedOnce) {
+            appResumeSignal += 1
+        } else {
+            hasResumedOnce = true
+        }
     }
 
     private fun recordAgeVerificationReturn(uri: Uri?) {

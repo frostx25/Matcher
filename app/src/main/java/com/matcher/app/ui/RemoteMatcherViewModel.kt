@@ -1281,6 +1281,11 @@ class RemoteMatcherViewModel(
         mutableState.update { it.copy(errorMessage = null) }
     }
 
+    fun refreshOnResume() {
+        if (!requireActiveAccount()) return
+        launchRemote { token -> refreshSignedInData(token) }
+    }
+
     private suspend fun refreshSignedInData(token: SessionWorkToken) {
         ensureSessionWorkIsCurrent(token)
         val previousState = mutableState.value

@@ -135,6 +135,7 @@ fun MatcherApp(
     ageVerificationReturnSignal: Int = 0,
     notificationConversationId: String? = null,
     notificationConversationSignal: Int = 0,
+    appResumeSignal: Int = 0,
 ) {
     if (useRemoteBackend) {
         if (SupabaseBackend.isConfigured) {
@@ -142,6 +143,7 @@ fun MatcherApp(
                 ageVerificationReturnSignal = ageVerificationReturnSignal,
                 notificationConversationId = notificationConversationId,
                 notificationConversationSignal = notificationConversationSignal,
+                appResumeSignal = appResumeSignal,
             )
         } else {
             RemoteConfigurationErrorScreen()
