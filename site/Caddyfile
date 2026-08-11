@@ -15,3 +15,23 @@ vibeali.shop, www.vibeali.shop {
     @assets path /assets/* *.css *.js
     header @assets Cache-Control "public, max-age=604800"
 }
+
+admin.vibeali.shop {
+    root * /srv/admin
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+        Content-Security-Policy "default-src 'self'; connect-src 'self' https://gevdssaambgivxiqilad.supabase.co wss://gevdssaambgivxiqilad.supabase.co; img-src 'self' data: blob: https://gevdssaambgivxiqilad.supabase.co; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        X-Robots-Tag "noindex, nofollow, noarchive"
+    }
+
+    @assets path /assets/* *.css *.js
+    header @assets Cache-Control "public, max-age=604800, immutable"
+}

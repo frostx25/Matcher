@@ -1,6 +1,8 @@
-# Matcher — central de segurança
+# VibeAli Trust Desk
 
 Painel web interno para revisão humana da foto pública de perfil, denúncias, evidências privadas vinculadas, sanções de conta, auditoria e gestão da equipe. Ele usa autenticação OTP do Supabase, RPCs protegidas por RLS e a Edge Function `moderation-profile-photos` para decisões e prévias privadas.
+
+Produção: `https://admin.vibeali.shop`. O painel é publicado como site estático na VM da VibeAli e permanece separado do site público por hostname, política de conteúdo e cabeçalhos de segurança.
 
 ## Desenvolvimento local
 

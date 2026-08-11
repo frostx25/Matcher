@@ -4,19 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0b090d" />
-    <title>VibeAli — Central de segurança</title>
+    <meta name="theme-color" content="#09090b" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="description" content="Central restrita de confiança e segurança da VibeAli." />
+    <title>VibeAli Trust Desk</title>
   </head>
   <body>
     <div id="app"></div>
-    <script>
-      window.addEventListener("error", function (event) {
-        var root = document.getElementById("app");
-        if (root && !root.textContent) {
-          root.innerHTML = '<main style="padding:32px;color:#fff;background:#0b090d;min-height:100vh"><h1>Falha ao iniciar o painel</h1><p>' + String(event.message || "Erro desconhecido") + '</p></main>';
-        }
-      });
-    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
