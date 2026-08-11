@@ -1,4 +1,6 @@
 begin;
+set local role postgres;
+set local search_path = public, testing, extensions;
 select plan(18);
 select has_column('public','conversation_user_states','archived_at','archive is per-user');
 select has_table('private','moderation_appeals','appeals are stored privately');
