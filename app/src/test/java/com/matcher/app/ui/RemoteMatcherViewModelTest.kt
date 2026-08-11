@@ -1362,6 +1362,33 @@ class RemoteMatcherViewModelTest {
     }
 
     @Test
+    fun favoriteAndHideRefreshAuthoritativeDiscoveryLists() = runTest(dispatcher) {
+        val target = testProfile(displayName = "Pessoa favorita").copy(id = "00000000-0000-4000-8000-000000000902")
+        val profiles = FakeProfileGateway(initialProfile = testProfile()).apply {
+            firstPage = DiscoveryPage(listOf(target), null)
+        }
+        val viewModel = viewModel(
+            auth = FakeAuthGateway(MatcherSession.SignedIn("user-test")),
+            profiles = profiles,
+            age = FakeAgeVerificationGateway(activeUnverifiedSnapshot(AgeVerificationStatus.NotStarted)),
+        )
+        advanceUntilIdle()
+
+        viewModel.setProfileFavorite(target.id, true)
+        advanceUntilIdle()
+        assertEquals(target.id, profiles.favoriteTargetId)
+        assertTrue(profiles.favoriteValue)
+        assertEquals(listOf(target.id), viewModel.uiState.value.favoriteProfiles.map(RemoteProfile::id))
+
+        var hiddenCallback = false
+        viewModel.hideProfile(target.id) { hiddenCallback = true }
+        advanceUntilIdle()
+        assertEquals(target.id, profiles.hiddenTargetId)
+        assertTrue(hiddenCallback)
+        assertTrue(viewModel.uiState.value.favoriteProfiles.isEmpty())
+    }
+
+    @Test
     fun diditUrlValidationRequiresExactHttpsHostAndStandardPort() {
         assertTrue(isTrustedAgeVerificationUrl("https://verify.didit.me/session/synthetic"))
         assertTrue(isTrustedAgeVerificationUrl("https://verify.didit.me:443/session/synthetic"))
@@ -1454,6 +1481,10 @@ private class FakeProfileGateway(
     var updateGenderGate: CompletableDeferred<Unit>? = null
     var ignoreUpdateGenderCancellation = false
     var accountDeletionRequests = 0
+    var favoriteProfiles = mutableListOf<RemoteProfile>()
+    var favoriteTargetId: String? = null
+    var favoriteValue = false
+    var hiddenTargetId: String? = null
     var genderSettings = GenderSettings(
         genderIdentityIds = listOf("non_binary"),
         genderVisible = true,
@@ -1537,6 +1568,28 @@ private class FakeProfileGateway(
         )
         profile = updatedProfile
         return updatedProfile
+    }
+
+    override suspend fun favoriteProfiles(pageSize: Int): List<RemoteProfile> = favoriteProfiles.toList()
+
+    override suspend fun setProfileFavorite(targetUserId: String, favorite: Boolean): Boolean {
+        favoriteTargetId = targetUserId
+        favoriteValue = favorite
+        val target = firstPage.profiles.firstOrNull { it.id == targetUserId }
+        if (favorite && target != null) {
+            favoriteProfiles.removeAll { it.id == targetUserId }
+            favoriteProfiles += target.copy(isFavorite = true)
+        } else {
+            favoriteProfiles.removeAll { it.id == targetUserId }
+        }
+        return favorite
+    }
+
+    override suspend fun hideProfile(targetUserId: String): Boolean {
+        hiddenTargetId = targetUserId
+        favoriteProfiles.removeAll { it.id == targetUserId }
+        firstPage = firstPage.copy(profiles = firstPage.profiles.filterNot { it.id == targetUserId })
+        return true
     }
 
     override suspend fun requestAccountDeletion(): Boolean {

@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -423,7 +424,9 @@ private fun RemoteHome(
     state: RemoteMatcherUiState,
     viewModel: RemoteMatcherViewModel,
 ) {
-    val remoteProfiles = state.discovery.profiles.map(RemoteProfile::toDemoProfile)
+    val discoveryProfiles = state.discovery.profiles.map(RemoteProfile::toDemoProfile)
+    val favoriteProfiles = state.favoriteProfiles.map(RemoteProfile::toDemoProfile)
+    val remoteProfiles = (discoveryProfiles + favoriteProfiles).distinctBy(DemoProfile::id)
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var selectedProfileId by rememberSaveable { mutableStateOf<String?>(null) }
     var firstMessageProfileId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -533,6 +536,10 @@ private fun RemoteHome(
             onReport = { reason, details ->
                 viewModel.reportUser(selectedProfile.id, reason, details, null) { selectedProfileId = null }
             },
+            onToggleFavorite = {
+                viewModel.setProfileFavorite(selectedProfile.id, !selectedProfile.isFavorite)
+            },
+            onHide = { viewModel.hideProfile(selectedProfile.id) { selectedProfileId = null } },
             receivedPrivateAlbumAvailable = state.privateAlbum.sharedWithMe.any {
                 it.ownerId == selectedProfile.id
             },
@@ -565,6 +572,8 @@ private fun RemoteHome(
                 errorMessage = state.errorMessage,
                 onBack = { activeConversationId = null },
                 onSendMessage = { viewModel.sendMessage(activeConversation.id, it) },
+                onSendReply = { body, replyId -> viewModel.sendMessage(activeConversation.id, body, replyId) },
+                onToggleReaction = viewModel::toggleMessageReaction,
                 onSendPhoto = { viewModel.sendPhoto(activeConversation.id, it) },
                 onRetryMessage = viewModel::retryMessage,
                 onOpenChatPhoto = viewModel::openChatPhoto,
@@ -620,7 +629,8 @@ private fun RemoteHome(
         ) { padding ->
             when (selectedTab) {
                 0 -> RemoteDiscoveryScreen(
-                    profiles = remoteProfiles,
+                    profiles = discoveryProfiles,
+                    favoriteProfiles = favoriteProfiles,
                     viewerAvatarUrl = profile.avatarUrl,
                     viewerInitials = profile.displayName.trim().take(2).uppercase(),
                     remainingChats = state.chat.remainingQuota,
@@ -704,6 +714,7 @@ private fun RemoteHome(
 @Composable
 internal fun RemoteDiscoveryScreen(
     profiles: List<DemoProfile>,
+    favoriteProfiles: List<DemoProfile> = emptyList(),
     viewerAvatarUrl: String?,
     viewerInitials: String,
     remainingChats: Int,
@@ -721,6 +732,8 @@ internal fun RemoteDiscoveryScreen(
     val windowWidthDp = (LocalWindowInfo.current.containerSize.width / density.density).toInt()
     val discoveryColumns = discoveryColumnCountForWidth(windowWidthDp)
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
+    var favoritesOnly by rememberSaveable { mutableStateOf(false) }
+    val visibleProfiles = if (favoritesOnly) favoriteProfiles else profiles
     var draftLookingFor by remember(lookingForGenderIds, filtersOpen) {
         mutableStateOf(lookingForGenderIds)
     }
@@ -734,6 +747,25 @@ internal fun RemoteDiscoveryScreen(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { favoritesOnly = false },
+                    modifier = Modifier.weight(1f).testTag("show-nearby-profiles"),
+                ) { Text("Perto") }
+                OutlinedButton(
+                    onClick = { favoritesOnly = true },
+                    modifier = Modifier.weight(1f).testTag("show-favorite-profiles"),
+                ) {
+                    Icon(Icons.Outlined.Favorite, null, modifier = Modifier.size(16.dp), tint = Pink)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Favoritos (${favoriteProfiles.size})")
+                }
+            }
+        }
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
                 modifier = Modifier
@@ -879,7 +911,7 @@ internal fun RemoteDiscoveryScreen(
                 ) { CircularProgressIndicator(color = Pink) }
             }
         }
-        if (profiles.isEmpty() && !loading) {
+        if (visibleProfiles.isEmpty() && !loading) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(
                     modifier = Modifier
@@ -888,16 +920,20 @@ internal fun RemoteDiscoveryScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("Ninguém por aqui ainda", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
                     Text(
-                        "Altere os filtros ou volte mais tarde.",
+                        if (favoritesOnly) "Nenhum favorito ainda" else "Ninguém por aqui ainda",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        if (favoritesOnly) "Use o coração no perfil para guardar pessoas aqui." else "Altere os filtros ou volte mais tarde.",
                         color = TextSecondary,
                         fontSize = 13.sp,
                     )
                 }
             }
         }
-        gridItems(profiles, key = { it.id }) { item ->
+        gridItems(visibleProfiles, key = { it.id }) { item ->
             RemoteDiscoveryProfileCard(
                 profile = item,
                 onOpen = { onOpen(item.id) },
@@ -1443,5 +1479,7 @@ private fun RemoteProfile.toDemoProfile(): DemoProfile {
         colors = palette[(id.hashCode() and Int.MAX_VALUE) % palette.size],
         verified = verified,
         avatarUrl = avatarUrl,
+        isFavorite = isFavorite,
+        activityStatus = activityStatus,
     )
 }

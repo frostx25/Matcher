@@ -71,6 +71,28 @@ class ProfileDetailScreenTest {
         composeRule.runOnIdle { assertEquals(1, blockCalls) }
     }
 
+    @Test
+    fun favoriteAndHideAreSeparateFromBlockAndReport() {
+        var favoriteCalls = 0
+        var hideCalls = 0
+        setProfileContent(
+            receivedPrivateAlbumAvailable = false,
+            myPrivateAlbumAvailable = false,
+            onToggleFavorite = { favoriteCalls += 1 },
+            onHide = { hideCalls += 1 },
+        )
+
+        composeRule.onNodeWithTag("favorite-profile-user-target-01").performClick()
+        composeRule.onNodeWithTag("profile-safety-menu-user-target-01").performClick()
+        composeRule.onNodeWithText("Ocultar da grade").assertIsDisplayed()
+        composeRule.onNodeWithTag("hide-profile-user-target-01").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, favoriteCalls)
+            assertEquals(1, hideCalls)
+        }
+    }
+
     private fun setProfileContent(
         receivedPrivateAlbumAvailable: Boolean,
         myPrivateAlbumAvailable: Boolean,
@@ -78,6 +100,8 @@ class ProfileDetailScreenTest {
         onOpenPrivateAlbum: () -> Unit = {},
         onTogglePrivateAlbumShare: () -> Unit = {},
         onBlock: () -> Unit = {},
+        onToggleFavorite: () -> Unit = {},
+        onHide: () -> Unit = {},
     ) {
         composeRule.setContent {
             MatcherTheme {
@@ -88,6 +112,8 @@ class ProfileDetailScreenTest {
                     onStartChat = onStartChat,
                     onBlock = onBlock,
                     onReport = { _: ReportReason, _: String -> },
+                    onToggleFavorite = onToggleFavorite,
+                    onHide = onHide,
                     receivedPrivateAlbumAvailable = receivedPrivateAlbumAvailable,
                     myPrivateAlbumAvailable = myPrivateAlbumAvailable,
                     myPrivateAlbumShared = false,

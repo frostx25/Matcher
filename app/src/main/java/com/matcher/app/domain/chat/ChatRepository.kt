@@ -22,6 +22,12 @@ data class ChatMessage(
     val deliveryStatus: ChatDeliveryStatus = ChatDeliveryStatus.Sent,
     val mediaStatus: ChatMediaStatus? = null,
     val clientMessageId: String? = null,
+    val replyToMessageId: String? = null,
+    val replyPreview: String? = null,
+    val reactionCount: Int = 0,
+    val reactedByMe: Boolean = false,
+    val albumEvent: String? = null,
+    val albumId: String? = null,
 )
 
 data class Conversation(

@@ -28,6 +28,8 @@ data class RemoteProfile(
     @SerialName("gender_identity_ids") val genderIdentityIds: List<String> = listOf("prefer_not_to_say"),
     @SerialName("gender_self_description") val genderSelfDescription: String? = null,
     @SerialName("gender_visible") val genderVisible: Boolean = false,
+    @SerialName("is_favorite") val isFavorite: Boolean = false,
+    @SerialName("activity_status") val activityStatus: String? = null,
     @Transient val avatarCandidatePath: String? = null,
     @Transient val avatarModerationStatus: String = "none",
     @Transient val avatarUrl: String? = null,
@@ -97,6 +99,16 @@ interface ProfileGateway {
         error("Gender settings are not supported by this gateway")
 
     suspend fun submitProfilePhoto(jpegBytes: ByteArray): RemoteProfile
+
+    suspend fun favoriteProfiles(pageSize: Int = 50): List<RemoteProfile> = emptyList()
+
+    suspend fun setProfileFavorite(targetUserId: String, favorite: Boolean): Boolean = favorite
+
+    suspend fun hideProfile(targetUserId: String): Boolean = false
+
+    suspend fun unhideProfile(targetUserId: String): Boolean = false
+
+    suspend fun setActivityVisibility(visible: Boolean): Boolean = visible
 
     suspend fun requestAccountDeletion(): Boolean = false
 }
@@ -187,6 +199,9 @@ class SupabaseProfileGateway(
         require(cursor == null || preferenceCursorVersion != null) {
             "PREFERENCE_CURSOR_VERSION_REQUIRED"
         }
+        if (cursor == null) {
+            client.postgrest.rpc("touch_profile_presence").decodeAs<Boolean>()
+        }
         val rows = client.postgrest.rpc(
             function = "get_discovery_profiles",
             parameters = buildJsonObject {
@@ -257,6 +272,46 @@ class SupabaseProfileGateway(
         return requireNotNull(currentProfile()) { "PROFILE_NOT_FOUND" }
     }
 
+    override suspend fun favoriteProfiles(pageSize: Int): List<RemoteProfile> {
+        require(pageSize in 1..100)
+        return client.postgrest.rpc(
+            "get_favorite_profiles",
+            buildJsonObject { put("page_size", pageSize) },
+        ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() }
+    }
+
+    override suspend fun setProfileFavorite(targetUserId: String, favorite: Boolean): Boolean {
+        requireUuid(targetUserId)
+        return client.postgrest.rpc(
+            "set_profile_favorite",
+            buildJsonObject {
+                put("target_user_id", targetUserId)
+                put("should_favorite", favorite)
+            },
+        ).decodeAs()
+    }
+
+    override suspend fun hideProfile(targetUserId: String): Boolean {
+        requireUuid(targetUserId)
+        return client.postgrest.rpc(
+            "hide_profile",
+            buildJsonObject { put("target_user_id", targetUserId) },
+        ).decodeAs()
+    }
+
+    override suspend fun unhideProfile(targetUserId: String): Boolean {
+        requireUuid(targetUserId)
+        return client.postgrest.rpc(
+            "unhide_profile",
+            buildJsonObject { put("target_user_id", targetUserId) },
+        ).decodeAs()
+    }
+
+    override suspend fun setActivityVisibility(visible: Boolean): Boolean = client.postgrest.rpc(
+        "set_activity_visibility",
+        buildJsonObject { put("visible", visible) },
+    ).decodeAs()
+
     private suspend fun RemoteProfile.withOwnerPhotoState(
         state: ProfilePhotoState?,
     ): RemoteProfile {
@@ -326,6 +381,8 @@ private data class DiscoveryProfileRow(
     @SerialName("gender_self_description") val genderSelfDescription: String? = null,
     @SerialName("has_more") val hasMore: Boolean,
     @SerialName("preference_cursor_version") val preferenceCursorVersion: Long,
+    @SerialName("is_favorite") val isFavorite: Boolean = false,
+    @SerialName("activity_status") val activityStatus: String? = null,
 ) {
     fun toRemoteProfile() = RemoteProfile(
         id = id,
@@ -339,6 +396,8 @@ private data class DiscoveryProfileRow(
         genderIdentityIds = genderIdentityIds,
         genderSelfDescription = genderSelfDescription,
         genderVisible = genderIdentityIds.isNotEmpty(),
+        isFavorite = isFavorite,
+        activityStatus = activityStatus,
     )
 }
 

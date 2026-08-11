@@ -105,6 +105,12 @@ private data class MessageRow(
     @SerialName("delivered_at") val deliveredAt: String? = null,
     @SerialName("read_at") val readAt: String? = null,
     @SerialName("media_status") val mediaStatus: String? = null,
+    @SerialName("reply_to_message_id") val replyToMessageId: String? = null,
+    @SerialName("reply_preview") val replyPreview: String? = null,
+    @SerialName("reaction_count") val reactionCount: Int = 0,
+    @SerialName("reacted_by_me") val reactedByMe: Boolean = false,
+    @SerialName("album_event") val albumEvent: String? = null,
+    @SerialName("album_id") val albumId: String? = null,
 )
 
 @Serializable
@@ -142,6 +148,15 @@ interface RemoteChatGateway {
         body: String,
         clientMessageId: String,
     ): SendMessageResult = sendMessage(conversationId, body)
+
+    suspend fun sendMessageWithReplyKey(
+        conversationId: String,
+        body: String,
+        clientMessageId: String,
+        replyToMessageId: String?,
+    ): SendMessageResult = sendMessageWithKey(conversationId, body, clientMessageId)
+
+    suspend fun toggleMessageReaction(messageId: String): Boolean = false
 
     suspend fun sendPhoto(
         conversationId: String,
@@ -249,6 +264,13 @@ class SupabaseChatGateway(
         conversationId: String,
         body: String,
         clientMessageId: String,
+    ): SendMessageResult = sendMessageWithReplyKey(conversationId, body, clientMessageId, null)
+
+    override suspend fun sendMessageWithReplyKey(
+        conversationId: String,
+        body: String,
+        clientMessageId: String,
+        replyToMessageId: String?,
     ): SendMessageResult {
         return try {
             val messageId = client.postgrest.rpc(
@@ -257,6 +279,8 @@ class SupabaseChatGateway(
                     put("conversation_id", conversationId)
                     put("message_body", body)
                     put("client_message_id", clientMessageId)
+                    if (replyToMessageId == null) put("reply_to_message_id", kotlinx.serialization.json.JsonNull)
+                    else put("reply_to_message_id", replyToMessageId)
                 },
             ).decodeAs<String>()
             SendMessageResult.Sent(
@@ -267,6 +291,7 @@ class SupabaseChatGateway(
                     body = body.trim(),
                     deliveryStatus = ChatDeliveryStatus.Sent,
                     clientMessageId = clientMessageId,
+                    replyToMessageId = replyToMessageId,
                 ),
             )
         } catch (error: PostgrestRestException) {
@@ -277,6 +302,11 @@ class SupabaseChatGateway(
             }
         }
     }
+
+    override suspend fun toggleMessageReaction(messageId: String): Boolean = client.postgrest.rpc(
+        function = "toggle_message_reaction",
+        parameters = buildJsonObject { put("target_message_id", messageId) },
+    ).decodeAs<Boolean>()
 
     override suspend fun sendPhoto(
         conversationId: String,
@@ -559,6 +589,12 @@ private fun MessageRow.toDomain() = ChatMessage(
     },
     mediaStatus = mediaStatus?.toMediaStatus(),
     clientMessageId = clientMessageId,
+    replyToMessageId = replyToMessageId,
+    replyPreview = replyPreview,
+    reactionCount = reactionCount,
+    reactedByMe = reactedByMe,
+    albumEvent = albumEvent,
+    albumId = albumId,
 )
 
 private fun ReportRow.toDomain() = ModerationCase(

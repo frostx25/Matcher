@@ -134,6 +134,7 @@ data class RemoteMatcherUiState(
     val genderSettings: GenderSettings? = null,
     val privateAlbum: PrivateAlbumUiState = PrivateAlbumUiState(),
     val discovery: DiscoveryPage = DiscoveryPage(emptyList(), null),
+    val favoriteProfiles: List<RemoteProfile> = emptyList(),
     val chat: ChatSnapshot = ChatSnapshot(0, emptyList(), emptySet(), emptyList()),
     val chatPhotoPreview: ChatPhotoPreviewUiState = ChatPhotoPreviewUiState(),
     val loading: Boolean = false,
@@ -896,7 +897,7 @@ class RemoteMatcherViewModel(
         }
     }
 
-    fun sendMessage(conversationId: String, body: String): Boolean {
+    fun sendMessage(conversationId: String, body: String, replyToMessageId: String? = null): Boolean {
         if (body.isBlank() || !requireActiveAccount()) return false
         val clientMessageId = UUID.randomUUID().toString()
         addPendingChatMessage(
@@ -907,10 +908,15 @@ class RemoteMatcherViewModel(
                 body = body.trim(),
                 deliveryStatus = ChatDeliveryStatus.Sending,
                 clientMessageId = clientMessageId,
+                replyToMessageId = replyToMessageId,
+                replyPreview = mutableState.value.chat.conversations
+                    .firstOrNull { it.id == conversationId }
+                    ?.messages?.firstOrNull { it.id == replyToMessageId }
+                    ?.let { if (it.kind == ChatMessageKind.Photo) "Foto" else it.body.take(120) },
             ),
         )
         launchRemote { token ->
-            when (chatGateway.sendMessageWithKey(conversationId, body, clientMessageId)) {
+            when (chatGateway.sendMessageWithReplyKey(conversationId, body, clientMessageId, replyToMessageId)) {
                 is SendMessageResult.Sent -> {
                     ensureSessionWorkIsCurrent(token)
                     reloadChat(token)
@@ -929,6 +935,15 @@ class RemoteMatcherViewModel(
             }
         }
         return true
+    }
+
+    fun toggleMessageReaction(messageId: String) {
+        if (!requireActiveAccount() || messageId.startsWith("local-")) return
+        launchRemote { token ->
+            chatGateway.toggleMessageReaction(messageId)
+            ensureSessionWorkIsCurrent(token)
+            reloadChat(token)
+        }
     }
 
     fun sendPhoto(conversationId: String, jpegBytes: ByteArray): Boolean {
@@ -1032,6 +1047,40 @@ class RemoteMatcherViewModel(
             } else {
                 setError("Não foi possível bloquear este perfil.")
             }
+        }
+    }
+
+    fun setProfileFavorite(targetUserId: String, favorite: Boolean) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            profileGateway.setProfileFavorite(targetUserId, favorite)
+            ensureSessionWorkIsCurrent(token)
+            val discovery = profileGateway.discoveryPage()
+            ensureSessionWorkIsCurrent(token)
+            val favorites = profileGateway.favoriteProfiles()
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update {
+                it.copy(discovery = discovery, favoriteProfiles = favorites, errorMessage = null)
+            }
+        }
+    }
+
+    fun hideProfile(targetUserId: String, onHidden: () -> Unit) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            if (!profileGateway.hideProfile(targetUserId)) {
+                setError("Não foi possível ocultar este perfil.")
+                return@launchRemote
+            }
+            ensureSessionWorkIsCurrent(token)
+            val discovery = profileGateway.discoveryPage()
+            ensureSessionWorkIsCurrent(token)
+            val favorites = profileGateway.favoriteProfiles()
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update {
+                it.copy(discovery = discovery, favoriteProfiles = favorites, errorMessage = null)
+            }
+            onHidden()
         }
     }
 
@@ -1184,6 +1233,8 @@ class RemoteMatcherViewModel(
         ensureSessionWorkIsCurrent(token)
         val discovery = profileGateway.discoveryPage()
         ensureSessionWorkIsCurrent(token)
+        val favoriteProfiles = profileGateway.favoriteProfiles()
+        ensureSessionWorkIsCurrent(token)
         val chat = chatGateway.snapshot()
         ensureSessionWorkIsCurrent(token)
         realtimeJob?.cancel()
@@ -1194,6 +1245,7 @@ class RemoteMatcherViewModel(
                 profile = profile,
                 genderSettings = genderSettings,
                 discovery = discovery,
+                favoriteProfiles = favoriteProfiles,
                 chat = chat,
                 ageVerificationOpen = if (
                     it.ageVerificationStatus == AgeVerificationStatus.Verified

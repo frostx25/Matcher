@@ -51,7 +51,7 @@ class RemoteDiscoveryScreenTest {
 
         composeRule.onNodeWithTag("remote-discovery").assertIsDisplayed()
         composeRule.onNodeWithTag("remote-discovery-header").assertIsDisplayed()
-        composeRule.onNodeWithText("Perto").assertIsDisplayed()
+        composeRule.onNodeWithTag("show-nearby-profiles").assertIsDisplayed()
         composeRule.onNodeWithText("Localização aproximada").assertIsDisplayed()
         composeRule.onNodeWithTag("chat-quota").assertIsDisplayed()
 
@@ -75,6 +75,34 @@ class RemoteDiscoveryScreenTest {
 
         composeRule.onNodeWithTag("toggle-gender-filter").performClick()
         composeRule.onNodeWithTag("save-gender-filter").assertIsDisplayed()
+    }
+
+    @Test
+    fun favoritesControlShowsOnlySavedProfiles() {
+        val nearby = syntheticProfile("user-nearby", "Perto")
+        val favorite = syntheticProfile("user-favorite", "Favorita").copy(isFavorite = true)
+        composeRule.setContent {
+            MatcherTheme {
+                RemoteDiscoveryScreen(
+                    profiles = listOf(nearby),
+                    favoriteProfiles = listOf(favorite),
+                    viewerAvatarUrl = null,
+                    viewerInitials = "QA",
+                    remainingChats = 5,
+                    loading = false,
+                    hasMore = false,
+                    lookingForGenderIds = setOf("everyone"),
+                    onLookingForChange = {},
+                    onLoadMore = {},
+                    onOpenAccount = {},
+                    onOpen = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("show-favorite-profiles").performClick()
+        composeRule.onNodeWithTag("remote-profile-user-favorite").assertIsDisplayed()
+        composeRule.onNodeWithText("Favoritos (1)").assertIsDisplayed()
     }
 
     private fun syntheticProfile(id: String, name: String) = DemoProfile(

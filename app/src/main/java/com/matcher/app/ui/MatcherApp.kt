@@ -34,6 +34,8 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Person
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Verified
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
@@ -112,6 +115,8 @@ internal data class DemoProfile(
     val colors: List<Color>,
     val verified: Boolean = false,
     val avatarUrl: String? = null,
+    val isFavorite: Boolean = false,
+    val activityStatus: String? = null,
 )
 
 internal val demoProfiles = listOf(
@@ -355,6 +360,8 @@ internal fun ProfileDetailScreen(
     onStartChat: () -> Unit,
     onBlock: () -> Unit,
     onReport: (ReportReason, String) -> Unit,
+    onToggleFavorite: () -> Unit = {},
+    onHide: () -> Unit = {},
     receivedPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumShared: Boolean = false,
@@ -456,9 +463,18 @@ internal fun ProfileDetailScreen(
                             )
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         InfoPill(Icons.Outlined.LocationOn, profile.distance)
                         InfoPill(Icons.Outlined.ChatBubbleOutline, profile.intent)
+                        if (profile.activityStatus != null) {
+                            InfoPill(
+                                Icons.Outlined.Person,
+                                if (profile.activityStatus == "online") "Online" else "Ativo há pouco",
+                            )
+                        }
                     }
                 }
 
@@ -481,40 +497,63 @@ internal fun ProfileDetailScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = Color.White)
                     }
-                    Box(
-                    ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         IconButton(
-                            onClick = { safetyMenuExpanded = true },
+                            onClick = onToggleFavorite,
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.5f))
-                                .testTag("profile-safety-menu-${profile.id}"),
+                                .testTag("favorite-profile-${profile.id}"),
                         ) {
-                            Icon(Icons.Outlined.MoreVert, "Segurança e opções", tint = Color.White)
+                            Icon(
+                                if (profile.isFavorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
+                                if (profile.isFavorite) "Remover dos favoritos" else "Adicionar aos favoritos",
+                                tint = if (profile.isFavorite) Pink else Color.White,
+                            )
                         }
-                        DropdownMenu(
-                            expanded = safetyMenuExpanded,
-                            onDismissRequest = { safetyMenuExpanded = false },
-                            containerColor = SurfaceRaised,
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Bloquear perfil") },
-                                leadingIcon = { Icon(Icons.Outlined.Block, null) },
-                                onClick = {
-                                    safetyMenuExpanded = false
-                                    showBlockConfirmation = true
-                                },
-                                modifier = Modifier.testTag("block-profile-${profile.id}"),
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Denunciar perfil") },
-                                leadingIcon = { Icon(Icons.Outlined.Flag, null) },
-                                onClick = {
-                                    safetyMenuExpanded = false
-                                    showReportDialog = true
-                                },
-                                modifier = Modifier.testTag("report-profile-${profile.id}"),
-                            )
+                        Box {
+                            IconButton(
+                                onClick = { safetyMenuExpanded = true },
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.5f))
+                                    .testTag("profile-safety-menu-${profile.id}"),
+                            ) {
+                                Icon(Icons.Outlined.MoreVert, "Segurança e opções", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = safetyMenuExpanded,
+                                onDismissRequest = { safetyMenuExpanded = false },
+                                containerColor = SurfaceRaised,
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Ocultar da grade") },
+                                    leadingIcon = { Icon(Icons.Outlined.VisibilityOff, null) },
+                                    onClick = {
+                                        safetyMenuExpanded = false
+                                        onHide()
+                                    },
+                                    modifier = Modifier.testTag("hide-profile-${profile.id}"),
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Bloquear perfil") },
+                                    leadingIcon = { Icon(Icons.Outlined.Block, null) },
+                                    onClick = {
+                                        safetyMenuExpanded = false
+                                        showBlockConfirmation = true
+                                    },
+                                    modifier = Modifier.testTag("block-profile-${profile.id}"),
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Denunciar perfil") },
+                                    leadingIcon = { Icon(Icons.Outlined.Flag, null) },
+                                    onClick = {
+                                        safetyMenuExpanded = false
+                                        showReportDialog = true
+                                    },
+                                    modifier = Modifier.testTag("report-profile-${profile.id}"),
+                                )
+                            }
                         }
                     }
                 }

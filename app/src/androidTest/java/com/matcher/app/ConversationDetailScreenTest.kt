@@ -125,10 +125,43 @@ class ConversationDetailScreenTest {
         }
     }
 
+    @Test
+    fun messageCanBeRepliedToAndReactedTo() {
+        var reply: Pair<String, String>? = null
+        var reactionId: String? = null
+        setConversationContent(
+            onSendReply = { body, messageId -> reply = body to messageId; true },
+            onToggleReaction = { reactionId = it },
+        )
+        composeRule.onNodeWithTag("react-message-message-01").performClick()
+        composeRule.onNodeWithTag("reply-message-message-01").performClick()
+        composeRule.onNodeWithText("Respondendo").assertIsDisplayed()
+        composeRule.onNodeWithTag("active-message-input").performTextInput("Minha resposta")
+        composeRule.onNodeWithTag("send-active-message").performClick()
+        composeRule.runOnIdle {
+            assertEquals("message-01", reactionId)
+            assertEquals("Minha resposta" to "message-01", reply)
+        }
+    }
+
+    @Test
+    fun albumShareEventOpensReceivedAlbum() {
+        var openCalls = 0
+        setConversationContent(
+            conversation = syntheticConversation(albumEvent = true),
+            onOpenPrivateAlbum = { openCalls += 1 },
+        )
+        composeRule.onNodeWithTag("album-event-message-01").assertIsDisplayed().performClick()
+        composeRule.runOnIdle { assertEquals(1, openCalls) }
+    }
+
     private fun setConversationContent(
         receivedPrivateAlbumAvailable: Boolean = false,
         myPrivateAlbumAvailable: Boolean = false,
         onSendMessage: (String) -> Boolean = { true },
+        onSendReply: (String, String) -> Boolean = { _, _ -> true },
+        onToggleReaction: (String) -> Unit = {},
+        conversation: Conversation = syntheticConversation(),
         onOpenProfile: () -> Unit = {},
         onOpenPrivateAlbum: () -> Unit = {},
         onTogglePrivateAlbumShare: () -> Unit = {},
@@ -140,11 +173,13 @@ class ConversationDetailScreenTest {
             MatcherTheme {
                 ConversationDetailScreen(
                     currentUserId = "user-free",
-                    conversation = syntheticConversation(),
+                    conversation = conversation,
                     profile = syntheticProfile(),
                     errorMessage = null,
                     onBack = {},
                     onSendMessage = onSendMessage,
+                    onSendReply = onSendReply,
+                    onToggleReaction = onToggleReaction,
                     onBlock = { onBlock() },
                     onReport = { _: String, _: ReportReason, _: String -> onReport() },
                     receivedPrivateAlbumAvailable = receivedPrivateAlbumAvailable,
@@ -172,7 +207,7 @@ class ConversationDetailScreenTest {
         verified = true,
     )
 
-    private fun syntheticConversation() = Conversation(
+    private fun syntheticConversation(albumEvent: Boolean = false) = Conversation(
         id = "conversation-01",
         participantIds = setOf("user-free", "user-target-01"),
         startedByUserId = "user-target-01",
@@ -181,6 +216,8 @@ class ConversationDetailScreenTest {
                 id = "message-01",
                 conversationId = "conversation-01",
                 senderId = "user-target-01",
+                albumEvent = if (albumEvent) "shared" else null,
+                albumId = if (albumEvent) "album-01" else null,
                 body = "Mensagem direta sintética",
             ),
         ),

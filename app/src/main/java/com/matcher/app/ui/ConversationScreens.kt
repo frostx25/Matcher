@@ -33,10 +33,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.automirrored.outlined.Reply
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.HourglassTop
@@ -341,6 +344,8 @@ internal fun ConversationDetailScreen(
     errorMessage: String?,
     onBack: () -> Unit,
     onSendMessage: (String) -> Boolean,
+    onSendReply: (String, String) -> Boolean = { _, _ -> false },
+    onToggleReaction: (String) -> Unit = {},
     onSendPhoto: (ByteArray) -> Boolean = { false },
     onRetryMessage: (ChatMessage) -> Unit = {},
     onOpenChatPhoto: (String) -> Unit = {},
@@ -366,6 +371,7 @@ internal fun ConversationDetailScreen(
     var showBlockConfirmation by rememberSaveable { mutableStateOf(false) }
     var showReportDialog by rememberSaveable { mutableStateOf(false) }
     var reportMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var replyMessage by remember(conversation.id) { mutableStateOf<ChatMessage?>(null) }
     var showPhotoPolicy by rememberSaveable { mutableStateOf(false) }
     var safetyMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
     var albumMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
@@ -581,6 +587,9 @@ internal fun ConversationDetailScreen(
                         onRetry = { onRetryMessage(chatMessage) },
                         onOpenPhoto = { onOpenChatPhoto(chatMessage.id) },
                         onReport = { reportMessage = chatMessage },
+                        onReply = { replyMessage = chatMessage },
+                        onToggleReaction = { onToggleReaction(chatMessage.id) },
+                        onOpenAlbum = onOpenPrivateAlbum,
                     )
                 }
             }
@@ -601,14 +610,29 @@ internal fun ConversationDetailScreen(
             color = Surface,
             shadowElevation = 14.dp,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
+                replyMessage?.let { replied ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(SurfaceRaised).padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Respondendo", color = Pink, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (replied.kind == ChatMessageKind.Photo) "Foto" else replied.body,
+                                color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp,
+                            )
+                        }
+                        TextButton(onClick = { replyMessage = null }, modifier = Modifier.testTag("cancel-message-reply")) {
+                            Text("Cancelar")
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                 Box {
                     IconButton(
                         onClick = { mediaMenuExpanded = true },
@@ -672,7 +696,11 @@ internal fun ConversationDetailScreen(
                 )
                 IconButton(
                     onClick = {
-                        if (onSendMessage(message)) message = ""
+                        val sent = replyMessage?.let { onSendReply(message, it.id) } ?: onSendMessage(message)
+                        if (sent) {
+                            message = ""
+                            replyMessage = null
+                        }
                     },
                     enabled = message.isNotBlank(),
                     modifier = Modifier
@@ -687,6 +715,7 @@ internal fun ConversationDetailScreen(
                         tint = if (message.isNotBlank()) Black else TextSecondary,
                     )
                 }
+            }
             }
         }
     }
@@ -813,6 +842,9 @@ private fun MessageBubble(
     onRetry: () -> Unit,
     onOpenPhoto: () -> Unit,
     onReport: () -> Unit,
+    onReply: () -> Unit,
+    onToggleReaction: () -> Unit,
+    onOpenAlbum: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -842,7 +874,34 @@ private fun MessageBubble(
                 )
                 .padding(horizontal = 15.dp, vertical = 12.dp),
         ) {
-            if (message.kind == ChatMessageKind.Photo) {
+            message.replyPreview?.takeIf { it.isNotBlank() }?.let { preview ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Reply, null, modifier = Modifier.size(14.dp), tint = if (isMine) Black.copy(.7f) else Pink)
+                    Text(preview, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 11.sp,
+                        color = if (isMine) Black.copy(.7f) else TextSecondary)
+                }
+            }
+            if (message.albumEvent != null) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = message.albumEvent == "shared", onClick = onOpenAlbum)
+                        .testTag("album-event-${message.id}"),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Outlined.PhotoLibrary, null, tint = if (isMine) Black else Pink)
+                        Text(
+                            if (message.albumEvent == "shared") "Álbum privado liberado" else "Acesso ao álbum revogado",
+                            color = if (isMine) Black else MaterialTheme.colorScheme.onBackground,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    if (message.albumEvent == "shared") Text("Toque para abrir", fontSize = 11.sp,
+                        color = if (isMine) Black.copy(.7f) else TextSecondary)
+                }
+            } else if (message.kind == ChatMessageKind.Photo) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -874,6 +933,25 @@ private fun MessageBubble(
                     lineHeight = 20.sp,
                     modifier = Modifier.testTag("message-${message.id}"),
                 )
+            }
+            if (message.deliveryStatus != ChatDeliveryStatus.Sending && message.deliveryStatus != ChatDeliveryStatus.Failed) {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onReply, modifier = Modifier.testTag("reply-message-${message.id}")) {
+                        Icon(Icons.AutoMirrored.Outlined.Reply, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("Responder", fontSize = 10.sp)
+                    }
+                    TextButton(onClick = onToggleReaction, modifier = Modifier.testTag("react-message-${message.id}")) {
+                        Icon(
+                            if (message.reactedByMe) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
+                            null, modifier = Modifier.size(14.dp),
+                        )
+                        if (message.reactionCount > 0) {
+                            Spacer(Modifier.width(3.dp))
+                            Text(message.reactionCount.toString(), fontSize = 10.sp)
+                        }
+                    }
+                }
             }
             if (isMine) {
                 Row(
