@@ -168,6 +168,10 @@ interface RemoteChatGateway {
 
     suspend fun setConversationMuted(conversationId: String, muted: Boolean): Boolean = false
 
+    suspend fun setConversationArchived(conversationId: String, archived: Boolean): Boolean = false
+
+    suspend fun setConversationTyping(conversationId: String, typing: Boolean): Boolean = false
+
     suspend fun downloadChatPhoto(messageId: String): ByteArray = error("CHAT_PHOTO_NOT_AVAILABLE")
 
     suspend fun blockUser(targetUserId: String): Boolean
@@ -200,6 +204,10 @@ class SupabaseChatGateway(
         val states = client.postgrest.rpc("get_chat_user_states")
             .decodeList<ConversationUserStateRow>()
             .associateBy { it.conversationId }
+        val archivedIds = client.postgrest.rpc("list_archived_conversation_ids")
+            .decodeList<String>().toSet()
+        val typingIds = client.postgrest.rpc("list_typing_conversation_ids")
+            .decodeList<String>().toSet()
         val conversations = client.from("conversations").select {
             order("last_message_at", Order.DESCENDING)
             range(0L..49L)
@@ -209,6 +217,8 @@ class SupabaseChatGateway(
                 messages = messages,
                 unreadCount = states[row.id]?.unreadCount ?: 0,
                 muted = states[row.id]?.muted ?: false,
+                archived = row.id in archivedIds,
+                participantTyping = row.id in typingIds,
             )
         }
         val blocks = client.from("blocks").select {
@@ -297,7 +307,9 @@ class SupabaseChatGateway(
         } catch (error: PostgrestRestException) {
             when (error.matcherCode()) {
                 "INVALID_MESSAGE" -> SendMessageResult.InvalidMessage
+                "MESSAGE_RATE_LIMITED", "REPEATED_MESSAGE_LIMITED" -> SendMessageResult.RateLimited
                 "CHAT_NOT_AVAILABLE" -> SendMessageResult.NotAllowed
+                "MESSAGE_RATE_LIMITED", "REPEATED_MESSAGE_LIMITED" -> SendMessageResult.RateLimited
                 else -> throw error
             }
         }
@@ -370,6 +382,24 @@ class SupabaseChatGateway(
             parameters = buildJsonObject {
                 put("target_conversation_id", conversationId)
                 put("should_mute", muted)
+            },
+        ).decodeAs()
+
+    override suspend fun setConversationArchived(conversationId: String, archived: Boolean): Boolean =
+        client.postgrest.rpc(
+            function = "set_conversation_archived",
+            parameters = buildJsonObject {
+                put("target_conversation_id", conversationId)
+                put("archived", archived)
+            },
+        ).decodeAs()
+
+    override suspend fun setConversationTyping(conversationId: String, typing: Boolean): Boolean =
+        client.postgrest.rpc(
+            function = "set_conversation_typing",
+            parameters = buildJsonObject {
+                put("target_conversation_id", conversationId)
+                put("typing", typing)
             },
         ).decodeAs()
 
@@ -447,6 +477,9 @@ class SupabaseChatGateway(
             channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "conversation_user_states"
             },
+            channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "conversation_typing_states"
+            },
         ).onEach { trySend(Unit) }.launchIn(this)
         channel.subscribe(blockUntilSubscribed = true)
         awaitClose {
@@ -489,6 +522,8 @@ internal fun Throwable.matcherCode(): String? {
         "RECIPIENT_NOT_AVAILABLE",
         "INVALID_RECIPIENT",
         "INVALID_MESSAGE",
+        "MESSAGE_RATE_LIMITED",
+        "REPEATED_MESSAGE_LIMITED",
         "CHAT_BLOCKED",
         "CHAT_QUOTA_EXHAUSTED",
         "CHAT_NOT_AVAILABLE",
@@ -567,6 +602,8 @@ private fun ConversationRow.toDomain(
     messages: List<ChatMessage>,
     unreadCount: Int = 0,
     muted: Boolean = false,
+    archived: Boolean = false,
+    participantTyping: Boolean = false,
 ) = Conversation(
     id = id,
     participantIds = setOf(participantA, participantB),
@@ -574,6 +611,8 @@ private fun ConversationRow.toDomain(
     messages = messages,
     unreadCount = unreadCount,
     muted = muted,
+    archived = archived,
+    participantTyping = participantTyping,
 )
 
 private fun MessageRow.toDomain() = ChatMessage(

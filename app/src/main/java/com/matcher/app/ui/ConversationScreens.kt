@@ -105,6 +105,8 @@ internal fun ConversationsScreen(
     onExplore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var showArchived by rememberSaveable { mutableStateOf(false) }
+    val visibleConversations = conversations.filter { it.archived == showArchived }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -141,7 +143,16 @@ internal fun ConversationsScreen(
             }
         }
 
-        if (conversations.isNotEmpty()) {
+        if (conversations.any { it.archived }) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !showArchived, onClick = { showArchived = false }, label = { Text("Ativas") })
+                    FilterChip(selected = showArchived, onClick = { showArchived = true }, label = { Text("Arquivadas") }, modifier = Modifier.testTag("show-archived-conversations"))
+                }
+            }
+        }
+
+        if (visibleConversations.isNotEmpty()) {
             item {
                 Row(
                     modifier = Modifier
@@ -166,7 +177,7 @@ internal fun ConversationsScreen(
                     )
                 }
             }
-            items(conversations, key = { it.id }) { conversation ->
+            items(visibleConversations, key = { it.id }) { conversation ->
                 val otherUserId = conversation.participantIds.firstOrNull { it != currentUserId }
                 val profile = profiles.firstOrNull { it.id == otherUserId }
                 if (profile != null) {
@@ -180,7 +191,7 @@ internal fun ConversationsScreen(
             }
         }
 
-        if (conversations.isEmpty()) {
+        if (visibleConversations.isEmpty()) {
             item {
                 EmptyConversationCard(onExplore = onExplore)
             }
@@ -356,6 +367,8 @@ internal fun ConversationDetailScreen(
     onReport: (String, ReportReason, String) -> Unit,
     onReportMessage: (String, ReportReason, String, String) -> Unit = { _, _, _, _ -> },
     onToggleMute: (Boolean) -> Unit = {},
+    onToggleArchive: (Boolean) -> Unit = {},
+    onTypingChanged: (Boolean) -> Unit = {},
     receivedPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumShared: Boolean = false,
@@ -455,7 +468,7 @@ internal fun ConversationDetailScreen(
                         }
                     }
                     Text(
-                        profile?.distance ?: "Conversa ativa",
+                        if (conversation.participantTyping) "digitando…" else profile?.distance ?: "Conversa ativa",
                         color = ActiveMint,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
@@ -537,6 +550,15 @@ internal fun ConversationDetailScreen(
                             onToggleMute(!conversation.muted)
                         },
                         modifier = Modifier.testTag("toggle-conversation-mute"),
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (conversation.archived) "Desarquivar conversa" else "Arquivar conversa") },
+                        leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null) },
+                        onClick = {
+                            safetyMenuExpanded = false
+                            onToggleArchive(!conversation.archived)
+                        },
+                        modifier = Modifier.testTag("toggle-conversation-archive"),
                     )
                     DropdownMenuItem(
                         text = { Text("Bloquear perfil") },
@@ -684,7 +706,10 @@ internal fun ConversationDetailScreen(
                 }
                 OutlinedTextField(
                     value = message,
-                    onValueChange = { message = it },
+                    onValueChange = {
+                        message = it
+                        onTypingChanged(it.isNotBlank())
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 52.dp)

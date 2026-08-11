@@ -25,9 +25,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matcher.app.data.remote.AgeVerificationStatus
+import com.matcher.app.data.remote.ActiveSanction
 
 @Composable
 internal fun AgeVerificationScreen(
@@ -252,7 +258,10 @@ internal fun RemoteAccessUnavailableScreen(
     loading: Boolean,
     onRetry: () -> Unit,
     onSignOut: () -> Unit,
+    activeSanction: ActiveSanction? = null,
+    onSubmitAppeal: (String) -> Unit = {},
 ) {
+    var appealStatement by remember(activeSanction?.sanctionId) { mutableStateOf("") }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -268,6 +277,30 @@ internal fun RemoteAccessUnavailableScreen(
             fontSize = 26.sp,
             fontWeight = FontWeight.Black,
         )
+        if (activeSanction != null) {
+            Spacer(Modifier.height(14.dp))
+            Text(
+                if (activeSanction.sanctionKind == "ban") "Conta banida" else "Conta suspensa",
+                color = Pink,
+                fontWeight = FontWeight.Bold,
+            )
+            if (activeSanction.appealState == null) {
+                OutlinedTextField(
+                    value = appealStatement,
+                    onValueChange = { appealStatement = it.take(2000) },
+                    label = { Text("Explique por que deseja uma revisão") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp).testTag("moderation-appeal-input"),
+                )
+                OutlinedButton(
+                    onClick = { onSubmitAppeal(appealStatement) },
+                    enabled = !loading && appealStatement.trim().length >= 20,
+                    modifier = Modifier.fillMaxWidth().testTag("submit-moderation-appeal"),
+                ) { Text("Enviar recurso") }
+            } else {
+                Text("Recurso: ${activeSanction.appealState.replace('_', ' ')}", color = TextSecondary)
+            }
+        }
         Spacer(Modifier.height(10.dp))
         Text(
             text = message ?: "Não foi possível confirmar o estado da sua conta.",

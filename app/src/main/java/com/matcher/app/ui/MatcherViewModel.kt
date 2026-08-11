@@ -48,6 +48,7 @@ class MatcherViewModel(
             is SendMessageResult.InvalidMessage -> "Escreva uma mensagem antes de enviar."
             is SendMessageResult.NotAllowed -> "Esta conversa não permite novas mensagens."
             is SendMessageResult.NotFound -> "A conversa não está mais disponível."
+            is SendMessageResult.RateLimited -> "Aguarde um pouco antes de enviar novamente."
         }
         refresh(error)
         return result is SendMessageResult.Sent
@@ -60,6 +61,7 @@ class MatcherViewModel(
             SendMessageResult.InvalidMessage -> "Escolha uma foto válida."
             SendMessageResult.NotAllowed -> "Esta conversa não permite novas mensagens."
             SendMessageResult.NotFound -> "A conversa não está mais disponível."
+            SendMessageResult.RateLimited -> "Aguarde um pouco antes de enviar novamente."
         }
         refresh(error)
         return result is SendMessageResult.Sent

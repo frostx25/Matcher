@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -45,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -93,7 +95,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
+internal fun RemoteMatcherApp(
+    ageVerificationReturnSignal: Int = 0,
+    notificationConversationId: String? = null,
+    notificationConversationSignal: Int = 0,
+) {
     val context = LocalContext.current
     val client = remember { SupabaseBackend.client }
     val notificationPermission = rememberLauncherForActivityResult(
@@ -112,6 +118,28 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
         ),
     )
     val state by remoteViewModel.uiState.collectAsState()
+    var exportLaunchInFlight by remember { mutableStateOf(false) }
+    val accountExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val payload = state.accountExportJson
+        if (uri != null && payload != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(payload.toByteArray(Charsets.UTF_8))
+                }
+            }
+        }
+        exportLaunchInFlight = false
+        remoteViewModel.accountExportHandled()
+    }
+
+    LaunchedEffect(state.accountExportJson) {
+        if (state.accountExportJson != null && !exportLaunchInFlight) {
+            exportLaunchInFlight = true
+            accountExportLauncher.launch("matcher-meus-dados.json")
+        }
+    }
 
     LaunchedEffect(remoteViewModel, context) {
         remoteViewModel.effects.collect { effect ->
@@ -181,6 +209,8 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
                         profile = profile,
                         state = state,
                         viewModel = remoteViewModel,
+                        requestedConversationId = notificationConversationId,
+                        requestedConversationSignal = notificationConversationSignal,
                     )
                 } ?: RemoteAccessUnavailableScreen(
                     message = "Não foi possível carregar o perfil ativo.",
@@ -194,6 +224,8 @@ internal fun RemoteMatcherApp(ageVerificationReturnSignal: Int = 0) {
                 loading = state.loading || state.verificationLoading,
                 onRetry = remoteViewModel::refreshAgeVerificationStatus,
                 onSignOut = remoteViewModel::signOut,
+                activeSanction = state.activeSanction,
+                onSubmitAppeal = remoteViewModel::submitModerationAppeal,
             )
         }
     }
@@ -423,6 +455,8 @@ private fun RemoteHome(
     profile: RemoteProfile,
     state: RemoteMatcherUiState,
     viewModel: RemoteMatcherViewModel,
+    requestedConversationId: String? = null,
+    requestedConversationSignal: Int = 0,
 ) {
     val discoveryProfiles = state.discovery.profiles.map(RemoteProfile::toDemoProfile)
     val favoriteProfiles = state.favoriteProfiles.map(RemoteProfile::toDemoProfile)
@@ -431,6 +465,12 @@ private fun RemoteHome(
     var selectedProfileId by rememberSaveable { mutableStateOf<String?>(null) }
     var firstMessageProfileId by rememberSaveable { mutableStateOf<String?>(null) }
     var activeConversationId by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(requestedConversationSignal, state.chat.conversations) {
+        if (requestedConversationSignal > 0 && state.chat.conversations.any { it.id == requestedConversationId }) {
+            activeConversationId = requestedConversationId
+            selectedTab = 1
+        }
+    }
 
     val selectedProfile = remoteProfiles.firstOrNull { it.id == selectedProfileId }
     val firstMessageProfile = remoteProfiles.firstOrNull { it.id == firstMessageProfileId }
@@ -581,6 +621,12 @@ private fun RemoteHome(
                 chatPhotoPreviewLoading = state.chatPhotoPreview.loading,
                 onCloseChatPhoto = viewModel::closeChatPhoto,
                 onToggleMute = { viewModel.setConversationMuted(activeConversation.id, it) },
+                onToggleArchive = { archived ->
+                    viewModel.setConversationArchived(activeConversation.id, archived) {
+                        activeConversationId = null
+                    }
+                },
+                onTypingChanged = { viewModel.setConversationTyping(activeConversation.id, it) },
                 onBlock = { target -> viewModel.blockUser(target) { activeConversationId = null } },
                 onReport = { target, reason, details ->
                     viewModel.reportUser(target, reason, details, activeConversation.id) {
@@ -651,6 +697,9 @@ private fun RemoteHome(
                     onLoadMore = viewModel::loadMoreDiscovery,
                     onOpenAccount = { selectedTab = 2 },
                     onOpen = { selectedProfileId = it },
+                    advancedDiscoveryActive = state.advancedDiscoveryActive,
+                    onAdvancedSearch = viewModel::searchDiscovery,
+                    onClearAdvancedSearch = viewModel::clearAdvancedDiscovery,
                     modifier = Modifier.padding(padding),
                 )
                 1 -> ConversationsScreen(
@@ -687,6 +736,14 @@ private fun RemoteHome(
                     },
                     onSignOut = viewModel::signOut,
                     onDeleteAccount = viewModel::deleteAccount,
+                    onUpdateProfile = viewModel::updateMyProfile,
+                    onExportAccount = viewModel::prepareAccountExport,
+                    showActivityStatus = state.privacyCenter.settings.showActivityStatus,
+                    hiddenProfiles = state.privacyCenter.hiddenProfiles,
+                    blockedProfiles = state.privacyCenter.blockedProfiles,
+                    onActivityVisibilityChange = viewModel::setActivityVisibility,
+                    onUnhideProfile = viewModel::unhideProfile,
+                    onUnblockProfile = viewModel::unblockUser,
                     modifier = Modifier.padding(padding),
                 )
             }
@@ -725,6 +782,9 @@ internal fun RemoteDiscoveryScreen(
     onLoadMore: () -> Unit,
     onOpenAccount: () -> Unit,
     onOpen: (String) -> Unit,
+    advancedDiscoveryActive: Boolean = false,
+    onAdvancedSearch: (String, Int, Int, Boolean, Boolean) -> Unit = { _, _, _, _, _ -> },
+    onClearAdvancedSearch: () -> Unit = {},
     modifier: Modifier = Modifier,
     profileTagPrefix: String = "remote-profile-",
 ) {
@@ -733,6 +793,11 @@ internal fun RemoteDiscoveryScreen(
     val discoveryColumns = discoveryColumnCountForWidth(windowWidthDp)
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var minimumAgeText by rememberSaveable { mutableStateOf("18") }
+    var maximumAgeText by rememberSaveable { mutableStateOf("99") }
+    var verifiedOnly by rememberSaveable { mutableStateOf(false) }
+    var hasPhotoOnly by rememberSaveable { mutableStateOf(false) }
     val visibleProfiles = if (favoritesOnly) favoriteProfiles else profiles
     var draftLookingFor by remember(lookingForGenderIds, filtersOpen) {
         mutableStateOf(lookingForGenderIds)
@@ -891,6 +956,65 @@ internal fun RemoteDiscoveryScreen(
                         onSelectedChange = { draftLookingFor = it },
                         title = "Mostrar perfis de",
                     )
+                    Text("Busca avançada", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it.take(60) },
+                        label = { Text("Nome ou intenção") },
+                        singleLine = true,
+                        enabled = !loading,
+                        modifier = Modifier.fillMaxWidth().testTag("advanced-search-query"),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = minimumAgeText,
+                            onValueChange = { minimumAgeText = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Idade mínima") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f).testTag("advanced-search-min-age"),
+                        )
+                        OutlinedTextField(
+                            value = maximumAgeText,
+                            onValueChange = { maximumAgeText = it.filter(Char::isDigit).take(2) },
+                            label = { Text("Idade máxima") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f).testTag("advanced-search-max-age"),
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { verifiedOnly = !verifiedOnly },
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (verifiedOnly) "✓ Verificados" else "Verificados") }
+                        OutlinedButton(
+                            onClick = { hasPhotoOnly = !hasPhotoOnly },
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (hasPhotoOnly) "✓ Com foto" else "Com foto") }
+                    }
+                    val minimumAge = minimumAgeText.toIntOrNull()
+                    val maximumAge = maximumAgeText.toIntOrNull()
+                    Button(
+                        onClick = {
+                            onLookingForChange(draftLookingFor)
+                            onAdvancedSearch(searchQuery.trim(), minimumAge ?: 18, maximumAge ?: 99, verifiedOnly, hasPhotoOnly)
+                            filtersOpen = false
+                        },
+                        enabled = !loading && draftLookingFor.isNotEmpty() && minimumAge != null && maximumAge != null && minimumAge in 18..99 && maximumAge in minimumAge..99,
+                        modifier = Modifier.fillMaxWidth().testTag("apply-advanced-search"),
+                        colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                    ) { Text("Buscar perfis", fontWeight = FontWeight.Bold) }
+                    if (advancedDiscoveryActive) {
+                        OutlinedButton(
+                            onClick = {
+                                onClearAdvancedSearch()
+                                filtersOpen = false
+                            },
+                            enabled = !loading,
+                            modifier = Modifier.fillMaxWidth().testTag("clear-advanced-search"),
+                        ) { Text("Limpar busca avançada") }
+                    }
                     Button(
                         onClick = {
                             onLookingForChange(draftLookingFor)
@@ -1062,12 +1186,25 @@ private fun RemoteProfileScreen(
     onOpenSharedPrivateAlbum: (SharedPrivateAlbumUi) -> Unit,
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
+    onUpdateProfile: (String, String, String) -> Unit,
+    onExportAccount: () -> Unit,
+    showActivityStatus: Boolean,
+    hiddenProfiles: List<RemoteProfile>,
+    blockedProfiles: List<RemoteProfile>,
+    onActivityVisibilityChange: (Boolean) -> Unit,
+    onUnhideProfile: (String) -> Unit,
+    onUnblockProfile: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var editGender by rememberSaveable { mutableStateOf(false) }
     var showDeleteAccount by rememberSaveable { mutableStateOf(false) }
+    var privacyList by rememberSaveable { mutableStateOf<String?>(null) }
+    var editPublicProfile by rememberSaveable { mutableStateOf(false) }
+    var displayNameDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.displayName) }
+    var bioDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.bio) }
+    var intentDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.intent) }
     var identityDraft by remember(genderSettings, editGender) {
         mutableStateOf(genderSettings?.genderIdentityIds?.toSet() ?: emptySet())
     }
@@ -1149,6 +1286,50 @@ private fun RemoteProfileScreen(
                 )
             }
             if (photoLoading) CircularProgressIndicator(color = Pink)
+            OutlinedButton(
+                onClick = { editPublicProfile = !editPublicProfile },
+                modifier = Modifier.fillMaxWidth().testTag("edit-public-profile"),
+            ) { Text(if (editPublicProfile) "Cancelar edição" else "Editar perfil") }
+            if (editPublicProfile) {
+                OutlinedTextField(displayNameDraft, { displayNameDraft = it.take(40) }, Modifier.fillMaxWidth(), label = { Text("Nome") })
+                OutlinedTextField(bioDraft, { bioDraft = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Bio") }, minLines = 3)
+                OutlinedTextField(intentDraft, { intentDraft = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("O que procura") })
+                Button(
+                    onClick = {
+                        onUpdateProfile(displayNameDraft, bioDraft, intentDraft)
+                        editPublicProfile = false
+                    },
+                    enabled = displayNameDraft.trim().length >= 2 && intentDraft.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().testTag("save-public-profile"),
+                    colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+                ) { Text("Salvar perfil") }
+            }
+        }
+
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Surface).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Privacidade", color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Mostrar atividade recente", color = MaterialTheme.colorScheme.onBackground)
+                    Text("Exibe apenas Online ou Ativo há pouco; nunca o horário exato.", color = TextSecondary, fontSize = 12.sp)
+                }
+                Switch(
+                    checked = showActivityStatus,
+                    onCheckedChange = onActivityVisibilityChange,
+                    modifier = Modifier.testTag("activity-visibility-switch"),
+                )
+            }
+            OutlinedButton(
+                onClick = { privacyList = "hidden" },
+                modifier = Modifier.fillMaxWidth().testTag("open-hidden-profiles"),
+            ) { Text("Perfis ocultados (${hiddenProfiles.size})") }
+            OutlinedButton(
+                onClick = { privacyList = "blocked" },
+                modifier = Modifier.fillMaxWidth().testTag("open-blocked-profiles"),
+            ) { Text("Perfis bloqueados (${blockedProfiles.size})") }
         }
         Text(
             "Fotos novas ficam privadas durante a análise. Conteúdo adulto ou abusivo fica oculto; sem uma foto já aprovada, aparece o avatar cinza.",
@@ -1280,6 +1461,10 @@ private fun RemoteProfileScreen(
         errorMessage?.let { Text(it, color = Pink, modifier = Modifier.testTag("remote-profile-error")) }
         Text("Região aproximada: ${profile.regionCode}", color = TextSecondary, fontSize = 12.sp)
         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sair") }
+        OutlinedButton(
+            onClick = onExportAccount,
+            modifier = Modifier.fillMaxWidth().testTag("export-account-data"),
+        ) { Text("Baixar meus dados") }
         TextButton(
             onClick = { showDeleteAccount = true },
             modifier = Modifier.fillMaxWidth().testTag("delete-account"),
@@ -1308,6 +1493,39 @@ private fun RemoteProfileScreen(
                 ) { Text("Excluir conta") }
             },
             dismissButton = { TextButton(onClick = { showDeleteAccount = false }) { Text("Cancelar") } },
+        )
+    }
+    privacyList?.let { listType ->
+        val entries = if (listType == "hidden") hiddenProfiles else blockedProfiles
+        AlertDialog(
+            onDismissRequest = { privacyList = null },
+            containerColor = Surface,
+            title = { Text(if (listType == "hidden") "Perfis ocultados" else "Perfis bloqueados", fontWeight = FontWeight.Bold) },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (entries.isEmpty()) item { Text("Nenhum perfil nesta lista.", color = TextSecondary) }
+                    items(entries, key = { it.id }) { entry ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(SurfaceRaised).padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RemoteProfileAvatar(entry.avatarUrl, entry.displayName.take(2).uppercase(), 42.dp)
+                            Spacer(Modifier.size(10.dp))
+                            Text(entry.displayName, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+                            TextButton(
+                                onClick = {
+                                    if (listType == "hidden") onUnhideProfile(entry.id) else onUnblockProfile(entry.id)
+                                },
+                                modifier = Modifier.testTag("restore-profile-${entry.id}"),
+                            ) { Text(if (listType == "hidden") "Mostrar" else "Desbloquear") }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { privacyList = null }) { Text("Fechar") } },
         )
     }
 }

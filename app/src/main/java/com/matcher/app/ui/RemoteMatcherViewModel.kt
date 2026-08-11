@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.matcher.app.data.remote.AgeVerificationGateway
 import com.matcher.app.data.remote.AgeVerificationStatus
+import com.matcher.app.data.remote.ActiveSanction
 import com.matcher.app.data.remote.AuthGateway
 import com.matcher.app.data.remote.CompleteOnboardingRequest
 import com.matcher.app.data.remote.DiscoveryPage
@@ -17,6 +18,7 @@ import com.matcher.app.data.remote.PrivateAlbumGateway
 import com.matcher.app.data.remote.PrivateAlbumGrant
 import com.matcher.app.data.remote.PrivateAlbumItem
 import com.matcher.app.data.remote.PrivateAlbumReportReason
+import com.matcher.app.data.remote.PrivacyCenter
 import com.matcher.app.data.remote.ProfileGateway
 import com.matcher.app.data.remote.RemoteChatGateway
 import com.matcher.app.data.remote.RemoteProfile
@@ -135,6 +137,10 @@ data class RemoteMatcherUiState(
     val privateAlbum: PrivateAlbumUiState = PrivateAlbumUiState(),
     val discovery: DiscoveryPage = DiscoveryPage(emptyList(), null),
     val favoriteProfiles: List<RemoteProfile> = emptyList(),
+    val privacyCenter: PrivacyCenter = PrivacyCenter(),
+    val activeSanction: ActiveSanction? = null,
+    val accountExportJson: String? = null,
+    val advancedDiscoveryActive: Boolean = false,
     val chat: ChatSnapshot = ChatSnapshot(0, emptyList(), emptySet(), emptyList()),
     val chatPhotoPreview: ChatPhotoPreviewUiState = ChatPhotoPreviewUiState(),
     val loading: Boolean = false,
@@ -170,6 +176,8 @@ class RemoteMatcherViewModel(
     private var discoveryPaginationJob: Job? = null
     private var privateAlbumJob: Job? = null
     private var privateAlbumSummaryJob: Job? = null
+    private val typingJobs = mutableMapOf<String, Job>()
+    private val typingActive = mutableSetOf<String>()
     private var albumRevalidationJob: Job? = null
     private var sessionGeneration = 0L
     private var privateAlbumGeneration = 0L
@@ -900,6 +908,7 @@ class RemoteMatcherViewModel(
     fun sendMessage(conversationId: String, body: String, replyToMessageId: String? = null): Boolean {
         if (body.isBlank() || !requireActiveAccount()) return false
         val clientMessageId = UUID.randomUUID().toString()
+        setConversationTyping(conversationId, false)
         addPendingChatMessage(
             ChatMessage(
                 id = "local-$clientMessageId",
@@ -926,6 +935,11 @@ class RemoteMatcherViewModel(
                     markPendingChatMessageFailed(clientMessageId)
                     setError("Escreva uma mensagem válida antes de enviar.")
                 }
+                SendMessageResult.RateLimited -> {
+                    ensureSessionWorkIsCurrent(token)
+                    markPendingChatMessageFailed(clientMessageId)
+                    setError("Você enviou mensagens muito rápido. Aguarde um pouco e tente novamente.")
+                }
                 SendMessageResult.NotAllowed,
                 SendMessageResult.NotFound -> {
                     ensureSessionWorkIsCurrent(token)
@@ -935,6 +949,25 @@ class RemoteMatcherViewModel(
             }
         }
         return true
+    }
+
+    fun setConversationTyping(conversationId: String, typing: Boolean) {
+        if (!requireActiveAccount()) return
+        typingJobs.remove(conversationId)?.cancel()
+        if (!typing) {
+            if (!typingActive.remove(conversationId)) return
+            launchRemote { chatGateway.setConversationTyping(conversationId, false) }
+            return
+        }
+        if (typingActive.add(conversationId)) {
+            launchRemote { chatGateway.setConversationTyping(conversationId, true) }
+        }
+        typingJobs[conversationId] = viewModelScope.launch {
+            delay(4_000)
+            typingActive.remove(conversationId)
+            runCatching { chatGateway.setConversationTyping(conversationId, false) }
+            typingJobs.remove(conversationId)
+        }
     }
 
     fun toggleMessageReaction(messageId: String) {
@@ -976,6 +1009,10 @@ class RemoteMatcherViewModel(
             launchRemote { token ->
                 when (chatGateway.sendMessageWithKey(message.conversationId, message.body, clientMessageId)) {
                     is SendMessageResult.Sent -> reloadChat(token)
+                    SendMessageResult.RateLimited -> {
+                        markPendingChatMessageFailed(clientMessageId)
+                        setError("Aguarde um pouco antes de tentar novamente.")
+                    }
                     else -> {
                         ensureSessionWorkIsCurrent(token)
                         markPendingChatMessageFailed(clientMessageId)
@@ -998,6 +1035,15 @@ class RemoteMatcherViewModel(
         launchRemote { token ->
             chatGateway.setConversationMuted(conversationId, muted)
             reloadChat(token)
+        }
+    }
+
+    fun setConversationArchived(conversationId: String, archived: Boolean, onChanged: () -> Unit = {}) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            chatGateway.setConversationArchived(conversationId, archived)
+            reloadChat(token)
+            onChanged()
         }
     }
 
@@ -1065,6 +1111,30 @@ class RemoteMatcherViewModel(
         }
     }
 
+    fun searchDiscovery(query: String, minimumAge: Int, maximumAge: Int, verifiedOnly: Boolean, hasPhotoOnly: Boolean) {
+        if (!requireActiveAccount()) return
+        if (minimumAge !in 18..99 || maximumAge !in minimumAge..99) {
+            setError("Escolha uma faixa de idade válida.")
+            return
+        }
+        launchRemote { token ->
+            val profiles = profileGateway.searchProfiles(query, minimumAge, maximumAge, verifiedOnly, hasPhotoOnly)
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update {
+                it.copy(discovery = DiscoveryPage(profiles, null), advancedDiscoveryActive = true, errorMessage = null)
+            }
+        }
+    }
+
+    fun clearAdvancedDiscovery() {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            val discovery = profileGateway.discoveryPage()
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update { it.copy(discovery = discovery, advancedDiscoveryActive = false, errorMessage = null) }
+        }
+    }
+
     fun hideProfile(targetUserId: String, onHidden: () -> Unit) {
         if (!requireActiveAccount()) return
         launchRemote { token ->
@@ -1077,10 +1147,39 @@ class RemoteMatcherViewModel(
             ensureSessionWorkIsCurrent(token)
             val favorites = profileGateway.favoriteProfiles()
             ensureSessionWorkIsCurrent(token)
+            val privacy = profileGateway.privacyCenter()
+            ensureSessionWorkIsCurrent(token)
             mutableState.update {
-                it.copy(discovery = discovery, favoriteProfiles = favorites, errorMessage = null)
+                it.copy(discovery = discovery, favoriteProfiles = favorites, privacyCenter = privacy, errorMessage = null)
             }
             onHidden()
+        }
+    }
+
+    fun setActivityVisibility(visible: Boolean) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            profileGateway.setActivityVisibility(visible)
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update { it.copy(privacyCenter = profileGateway.privacyCenter(), errorMessage = null) }
+        }
+    }
+
+    fun unhideProfile(targetUserId: String) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            profileGateway.unhideProfile(targetUserId)
+            ensureSessionWorkIsCurrent(token)
+            refreshSignedInData(token)
+        }
+    }
+
+    fun unblockUser(targetUserId: String) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            profileGateway.unblockUser(targetUserId)
+            ensureSessionWorkIsCurrent(token)
+            refreshSignedInData(token)
         }
     }
 
@@ -1137,6 +1236,47 @@ class RemoteMatcherViewModel(
         }
     }
 
+    fun updateMyProfile(displayName: String, bio: String, intent: String) {
+        if (!requireActiveAccount()) return
+        if (displayName.trim().length !in 2..40 || bio.trim().length > 500 || intent.trim().length !in 1..80) {
+            setError("Revise o nome, a bio e o que você procura.")
+            return
+        }
+        launchRemote { token ->
+            profileGateway.updateMyProfile(displayName, bio, intent)
+            ensureSessionWorkIsCurrent(token)
+            refreshSignedInData(token)
+        }
+    }
+
+    fun prepareAccountExport() {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            val exported = profileGateway.exportMyAccountData()
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update { it.copy(accountExportJson = exported, errorMessage = null) }
+        }
+    }
+
+    fun accountExportHandled() {
+        mutableState.update { it.copy(accountExportJson = null) }
+    }
+
+    fun submitModerationAppeal(statement: String) {
+        val sanction = mutableState.value.activeSanction ?: return
+        if (statement.trim().length !in 20..2000) {
+            setError("Explique o pedido de revisão com pelo menos 20 caracteres.")
+            return
+        }
+        launchRemote { token ->
+            profileGateway.submitModerationAppeal(sanction.sanctionId, statement)
+            ensureSessionWorkIsCurrent(token)
+            mutableState.update {
+                it.copy(activeSanction = profileGateway.activeSanction(), errorMessage = "Recurso enviado para análise.")
+            }
+        }
+    }
+
     fun clearError() {
         mutableState.update { it.copy(errorMessage = null) }
     }
@@ -1173,10 +1313,13 @@ class RemoteMatcherViewModel(
                 access.accountStatus == "suspended" || access.accountStatus == "deleted" -> {
                     realtimeJob?.cancel()
                     realtimeJob = null
+                    val sanction = if (access.accountStatus == "suspended") profileGateway.activeSanction() else null
+                    ensureSessionWorkIsCurrent(token)
                     mutableState.update {
                         it.copy(
                             signedInStage = SignedInStage.Unavailable,
                             errorMessage = "Esta conta não está disponível.",
+                            activeSanction = sanction,
                         )
                     }
                 }
@@ -1235,6 +1378,8 @@ class RemoteMatcherViewModel(
         ensureSessionWorkIsCurrent(token)
         val favoriteProfiles = profileGateway.favoriteProfiles()
         ensureSessionWorkIsCurrent(token)
+        val privacyCenter = profileGateway.privacyCenter()
+        ensureSessionWorkIsCurrent(token)
         val chat = chatGateway.snapshot()
         ensureSessionWorkIsCurrent(token)
         realtimeJob?.cancel()
@@ -1246,6 +1391,7 @@ class RemoteMatcherViewModel(
                 genderSettings = genderSettings,
                 discovery = discovery,
                 favoriteProfiles = favoriteProfiles,
+                privacyCenter = privacyCenter,
                 chat = chat,
                 ageVerificationOpen = if (
                     it.ageVerificationStatus == AgeVerificationStatus.Verified

@@ -37,6 +37,8 @@ data class Conversation(
     val messages: List<ChatMessage>,
     val unreadCount: Int = 0,
     val muted: Boolean = false,
+    val archived: Boolean = false,
+    val participantTyping: Boolean = false,
 )
 
 data class ModerationCase(
@@ -88,6 +90,7 @@ sealed interface SendMessageResult {
     data object InvalidMessage : SendMessageResult
     data object NotAllowed : SendMessageResult
     data object NotFound : SendMessageResult
+    data object RateLimited : SendMessageResult
 }
 
 interface ChatRepository {

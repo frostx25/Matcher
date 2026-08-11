@@ -1,6 +1,18 @@
 # Matcher — continuidade em um novo chat
 
-Atualizado em: 2026-08-10
+Atualizado em: 2026-08-11
+
+## Checkpoint de 11/08/2026 — privacidade e experiência madura
+
+- Central de privacidade no perfil: atividade, perfis ocultos/bloqueados, restaurar e desbloquear.
+- Conversas podem ser arquivadas e separadas entre ativas e arquivadas.
+- Indicador privado e temporário de digitação, respostas, reações e abertura de conversa por notificação.
+- Edição de nome/bio/intenção e exportação dos dados da conta para JSON escolhido pelo usuário.
+- Busca avançada por nome/intenção, idade, verificação e foto, sempre respeitando preferências, ocultações e bloqueios no servidor.
+- Sanção ativa pode ser consultada e contestada; o backend limita mensagens repetidas e volume abusivo.
+- Migrations aplicadas no Matcher Dev até `20260811140000_discovery_advanced_search.sql`.
+- Build, testes unitários e lint aprovados. Onze testes Compose passaram no Samsung SM-A315G e o APK abriu preservando a sessão.
+- O pgTAP de privacidade está escrito, mas a execução pela CLI ficou pendente porque o runner tentou usar o Docker Desktop, que estava desligado.
 
 ## Como retomar
 

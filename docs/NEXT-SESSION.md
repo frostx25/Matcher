@@ -1,5 +1,15 @@
 # Próxima sessão
 
+## Checkpoint de 11/08/2026 — prioridades 1, 2, 3 e 5
+
+- Backend remoto atualizado com privacidade, desbloqueio seguro, arquivamento, apelações, limites anti-spam, digitação temporária, edição/exportação da conta e busca avançada.
+- Android atualizado com central de privacidade, edição do perfil, download do JSON, abas de conversas arquivadas, indicador de digitação e deep link autorizado de notificações.
+- Busca avançada filtra no servidor sem revelar coordenadas ou distância exata.
+- Migrations `20260811110000` a `20260811140000` aplicadas no Matcher Dev.
+- Validação: `testDebugUnitTest`, `lintDebug`, `assembleDebug`, `assembleDebugAndroidTest` e 11 testes instrumentados no Samsung aprovados; app abriu sem `FATAL EXCEPTION` e preservou a sessão.
+- Próxima validação manual: usar duas contas reais simultâneas para confirmar digitação, notificação/deep link, arquivar/desarquivar, bloquear/desbloquear e conceder/revogar álbum de ponta a ponta.
+- Antes de executar o pgTAP novo, iniciar o Docker Desktop; a CLI conectou ao remoto, mas não encontrou o engine local do runner.
+
 ## Checkpoint de 10/08/2026 — central de segurança
 
 - A central web publicada está autenticando por OTP e oferece visão geral, fila humana de fotos, denúncias, busca e sanções de contas, auditoria e equipe com separação entre revisor e administrador.

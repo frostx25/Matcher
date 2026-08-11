@@ -42,6 +42,26 @@ data class DiscoveryPage(
 )
 
 @Serializable
+data class PrivacySettings(
+    @SerialName("show_activity_status") val showActivityStatus: Boolean = true,
+)
+
+data class PrivacyCenter(
+    val settings: PrivacySettings = PrivacySettings(),
+    val hiddenProfiles: List<RemoteProfile> = emptyList(),
+    val blockedProfiles: List<RemoteProfile> = emptyList(),
+)
+
+@Serializable
+data class ActiveSanction(
+    @SerialName("sanction_id") val sanctionId: String,
+    @SerialName("sanction_kind") val sanctionKind: String,
+    val reason: String,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("appeal_state") val appealState: String? = null,
+)
+
+@Serializable
 data class CompleteOnboardingRequest(
     @SerialName("birth_year") val birthYear: Int,
     @SerialName("display_name") val displayName: String,
@@ -86,6 +106,8 @@ interface ProfileGateway {
 
     suspend fun discoveryPage(cursor: String? = null, pageSize: Int = 20): DiscoveryPage
 
+    suspend fun searchProfiles(query: String, minimumAge: Int, maximumAge: Int, verifiedOnly: Boolean, hasPhotoOnly: Boolean): List<RemoteProfile> = emptyList()
+
     suspend fun discoveryPage(
         cursor: String,
         preferenceCursorVersion: Long,
@@ -110,12 +132,38 @@ interface ProfileGateway {
 
     suspend fun setActivityVisibility(visible: Boolean): Boolean = visible
 
+    suspend fun privacyCenter(): PrivacyCenter = PrivacyCenter()
+
+    suspend fun unblockUser(targetUserId: String): Boolean = false
+
+    suspend fun activeSanction(): ActiveSanction? = null
+
+    suspend fun submitModerationAppeal(sanctionId: String, statement: String): String =
+        error("Moderation appeals are not supported")
+
     suspend fun requestAccountDeletion(): Boolean = false
+
+    suspend fun updateMyProfile(displayName: String, bio: String, intent: String): Boolean = false
+
+    suspend fun exportMyAccountData(): String = error("Account export is not supported")
 }
 
 class SupabaseProfileGateway(
     private val client: SupabaseClient,
 ) : ProfileGateway {
+    override suspend fun updateMyProfile(displayName: String, bio: String, intent: String): Boolean =
+        client.postgrest.rpc(
+            "update_my_profile",
+            buildJsonObject {
+                put("display_name", displayName.trim())
+                put("bio", bio.trim())
+                put("intent", intent.trim())
+            },
+        ).decodeAs()
+
+    override suspend fun exportMyAccountData(): String = client.postgrest
+        .rpc("export_my_account_data").decodeAs<kotlinx.serialization.json.JsonObject>().toString()
+
     override suspend fun requestAccountDeletion(): Boolean = client.postgrest
         .rpc("request_account_deletion")
         .decodeAs()
@@ -177,6 +225,24 @@ class SupabaseProfileGateway(
             pageSize = pageSize,
         )
     }
+
+    override suspend fun searchProfiles(
+        query: String,
+        minimumAge: Int,
+        maximumAge: Int,
+        verifiedOnly: Boolean,
+        hasPhotoOnly: Boolean,
+    ): List<RemoteProfile> = client.postgrest.rpc(
+        "search_discovery_profiles",
+        buildJsonObject {
+            put("search_text", query.trim())
+            put("minimum_age", minimumAge)
+            put("maximum_age", maximumAge)
+            put("verified_only", verifiedOnly)
+            put("has_photo_only", hasPhotoOnly)
+            put("page_size", 50)
+        },
+    ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() }
 
     override suspend fun discoveryPage(
         cursor: String,
@@ -311,6 +377,40 @@ class SupabaseProfileGateway(
         "set_activity_visibility",
         buildJsonObject { put("visible", visible) },
     ).decodeAs()
+
+    override suspend fun privacyCenter(): PrivacyCenter {
+        val settings = client.postgrest.rpc("get_privacy_settings")
+            .decodeList<PrivacySettings>().singleOrNull() ?: PrivacySettings()
+        val hidden = client.postgrest.rpc(
+            "list_hidden_profiles", buildJsonObject { put("page_size", 100) },
+        ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() }
+        val blocked = client.postgrest.rpc(
+            "list_blocked_profiles", buildJsonObject { put("page_size", 100) },
+        ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() }
+        return PrivacyCenter(settings, hidden, blocked)
+    }
+
+    override suspend fun unblockUser(targetUserId: String): Boolean {
+        requireUuid(targetUserId)
+        return client.postgrest.rpc(
+            "unblock_user", buildJsonObject { put("target_user_id", targetUserId) },
+        ).decodeAs()
+    }
+
+    override suspend fun activeSanction(): ActiveSanction? = client.postgrest
+        .rpc("get_my_active_sanction").decodeList<ActiveSanction>().singleOrNull()
+
+    override suspend fun submitModerationAppeal(sanctionId: String, statement: String): String {
+        requireUuid(sanctionId)
+        require(statement.trim().length in 20..2000)
+        return client.postgrest.rpc(
+            "submit_moderation_appeal",
+            buildJsonObject {
+                put("target_sanction_id", sanctionId)
+                put("appeal_statement", statement.trim())
+            },
+        ).decodeAs()
+    }
 
     private suspend fun RemoteProfile.withOwnerPhotoState(
         state: ProfilePhotoState?,

@@ -133,10 +133,16 @@ fun MatcherApp(
     chatRepository: ChatRepository? = null,
     useRemoteBackend: Boolean = false,
     ageVerificationReturnSignal: Int = 0,
+    notificationConversationId: String? = null,
+    notificationConversationSignal: Int = 0,
 ) {
     if (useRemoteBackend) {
         if (SupabaseBackend.isConfigured) {
-            RemoteMatcherApp(ageVerificationReturnSignal = ageVerificationReturnSignal)
+            RemoteMatcherApp(
+                ageVerificationReturnSignal = ageVerificationReturnSignal,
+                notificationConversationId = notificationConversationId,
+                notificationConversationSignal = notificationConversationSignal,
+            )
         } else {
             RemoteConfigurationErrorScreen()
         }

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.matcher.app.ui.DemoProfile
 import com.matcher.app.ui.RemoteDiscoveryScreen
@@ -103,6 +104,36 @@ class RemoteDiscoveryScreenTest {
         composeRule.onNodeWithTag("show-favorite-profiles").performClick()
         composeRule.onNodeWithTag("remote-profile-user-favorite").assertIsDisplayed()
         composeRule.onNodeWithText("Favoritos (1)").assertIsDisplayed()
+    }
+
+    @Test
+    fun advancedSearchForwardsPrivateCriteriaAndCanBeCleared() {
+        var criteria: List<Any>? = null
+        var clearCalls = 0
+        composeRule.setContent {
+            MatcherTheme {
+                RemoteDiscoveryScreen(
+                    profiles = emptyList(), viewerAvatarUrl = null, viewerInitials = "QA",
+                    remainingChats = 5, loading = false, hasMore = false,
+                    lookingForGenderIds = setOf("everyone"), onLookingForChange = {},
+                    onLoadMore = {}, onOpenAccount = {}, onOpen = {},
+                    advancedDiscoveryActive = true,
+                    onAdvancedSearch = { query, min, max, verified, photo ->
+                        criteria = listOf(query, min, max, verified, photo)
+                    },
+                    onClearAdvancedSearch = { clearCalls += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("toggle-gender-filter").performClick()
+        composeRule.onNodeWithTag("advanced-search-query").performTextInput("amizade")
+        composeRule.onNodeWithTag("apply-advanced-search").performClick()
+        composeRule.runOnIdle { assertEquals(listOf("amizade", 18, 99, false, false), criteria) }
+
+        composeRule.onNodeWithTag("toggle-gender-filter").performClick()
+        composeRule.onNodeWithTag("clear-advanced-search").performClick()
+        composeRule.runOnIdle { assertEquals(1, clearCalls) }
     }
 
     private fun syntheticProfile(id: String, name: String) = DemoProfile(

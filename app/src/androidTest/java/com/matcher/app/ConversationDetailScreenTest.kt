@@ -155,12 +155,28 @@ class ConversationDetailScreenTest {
         composeRule.runOnIdle { assertEquals(1, openCalls) }
     }
 
+    @Test
+    fun conversationCanBeArchivedFromSafetyMenu() {
+        var archived: Boolean? = null
+        setConversationContent(onToggleArchive = { archived = it })
+        composeRule.onNodeWithTag("conversation-safety-menu").performClick()
+        composeRule.onNodeWithTag("toggle-conversation-archive").performClick()
+        composeRule.runOnIdle { assertEquals(true, archived) }
+    }
+
+    @Test
+    fun participantTypingStateIsVisibleInHeader() {
+        setConversationContent(conversation = syntheticConversation().copy(participantTyping = true))
+        composeRule.onNodeWithText("digitando…").assertIsDisplayed()
+    }
+
     private fun setConversationContent(
         receivedPrivateAlbumAvailable: Boolean = false,
         myPrivateAlbumAvailable: Boolean = false,
         onSendMessage: (String) -> Boolean = { true },
         onSendReply: (String, String) -> Boolean = { _, _ -> true },
         onToggleReaction: (String) -> Unit = {},
+        onToggleArchive: (Boolean) -> Unit = {},
         conversation: Conversation = syntheticConversation(),
         onOpenProfile: () -> Unit = {},
         onOpenPrivateAlbum: () -> Unit = {},
@@ -180,6 +196,7 @@ class ConversationDetailScreenTest {
                     onSendMessage = onSendMessage,
                     onSendReply = onSendReply,
                     onToggleReaction = onToggleReaction,
+                    onToggleArchive = onToggleArchive,
                     onBlock = { onBlock() },
                     onReport = { _: String, _: ReportReason, _: String -> onReport() },
                     receivedPrivateAlbumAvailable = receivedPrivateAlbumAvailable,

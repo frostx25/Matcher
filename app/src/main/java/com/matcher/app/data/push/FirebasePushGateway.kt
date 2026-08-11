@@ -179,12 +179,15 @@ class MatcherFirebaseMessagingService : FirebaseMessagingService() {
 
         val manager = getSystemService(NotificationManager::class.java)
         FirebasePushGateway.ensureNotificationChannel(this)
+        val conversationId = message.data["conversation_id"]
+            ?.takeIf { runCatching { UUID.fromString(it) }.isSuccess }
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            conversationId?.let { putExtra(MainActivity.NotificationConversationExtra, it) }
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            0,
+            conversationId?.hashCode() ?: 0,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
