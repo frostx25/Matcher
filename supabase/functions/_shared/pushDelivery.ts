@@ -28,7 +28,7 @@ export function isPrivateNotificationPayload(
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const payload = value as Record<string, unknown>;
   return Object.keys(payload).sort().join(",") === "body,conversation_id,title" &&
-    payload.title === "Matcher" && payload.body === "Nova mensagem" &&
+    payload.title === "VibeAli" && payload.body === "Nova mensagem" &&
     typeof payload.conversation_id === "string" && UUID.test(payload.conversation_id);
 }
 
@@ -37,7 +37,7 @@ export function fcmEnvelope(item: NotificationLease): Record<string, unknown> {
   return {
     message: {
       fid: item.firebaseInstallationId,
-      notification: { title: "Matcher", body: "Nova mensagem" },
+      notification: { title: "VibeAli", body: "Nova mensagem" },
       data: { conversation_id: item.payload.conversation_id },
       android: {
         priority: "high",

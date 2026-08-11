@@ -42,8 +42,10 @@ import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.DoneAll
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.HourglassTop
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -368,6 +370,8 @@ internal fun ConversationDetailScreen(
     onReportMessage: (String, ReportReason, String, String) -> Unit = { _, _, _, _ -> },
     onToggleMute: (Boolean) -> Unit = {},
     onToggleArchive: (Boolean) -> Unit = {},
+    onDeleteConversation: () -> Unit = {},
+    approximateRegion: String? = null,
     onTypingChanged: (Boolean) -> Unit = {},
     receivedPrivateAlbumAvailable: Boolean = false,
     myPrivateAlbumAvailable: Boolean = false,
@@ -382,6 +386,8 @@ internal fun ConversationDetailScreen(
     val displayName = profile?.name ?: "Conversa"
     var message by rememberSaveable(conversation.id) { mutableStateOf("") }
     var showBlockConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showLocationConfirmation by rememberSaveable { mutableStateOf(false) }
     var showReportDialog by rememberSaveable { mutableStateOf(false) }
     var reportMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var replyMessage by remember(conversation.id) { mutableStateOf<ChatMessage?>(null) }
@@ -561,6 +567,15 @@ internal fun ConversationDetailScreen(
                         modifier = Modifier.testTag("toggle-conversation-archive"),
                     )
                     DropdownMenuItem(
+                        text = { Text("Excluir conversa") },
+                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                        onClick = {
+                            safetyMenuExpanded = false
+                            showDeleteConfirmation = true
+                        },
+                        modifier = Modifier.testTag("delete-conversation"),
+                    )
+                    DropdownMenuItem(
                         text = { Text("Bloquear perfil") },
                         leadingIcon = { Icon(Icons.Outlined.Block, null) },
                         onClick = {
@@ -570,7 +585,7 @@ internal fun ConversationDetailScreen(
                         modifier = Modifier.testTag("block-active-conversation"),
                     )
                     DropdownMenuItem(
-                        text = { Text("Denunciar perfil") },
+                        text = { Text("Denunciar conversa") },
                         leadingIcon = { Icon(Icons.Outlined.Flag, null) },
                         onClick = {
                             safetyMenuExpanded = false
@@ -680,6 +695,17 @@ internal fun ConversationDetailScreen(
                             },
                             modifier = Modifier.testTag("conversation-select-photo"),
                         )
+                        if (!approximateRegion.isNullOrBlank()) {
+                            DropdownMenuItem(
+                                text = { Text("Compartilhar região aproximada") },
+                                leadingIcon = { Icon(Icons.Outlined.LocationOn, null) },
+                                onClick = {
+                                    mediaMenuExpanded = false
+                                    showLocationConfirmation = true
+                                },
+                                modifier = Modifier.testTag("conversation-share-location"),
+                            )
+                        }
                         if (myPrivateAlbumAvailable) {
                             DropdownMenuItem(
                                 text = { Text(if (myPrivateAlbumShared) "Revogar meu álbum" else "Liberar meu álbum") },
@@ -753,6 +779,56 @@ internal fun ConversationDetailScreen(
                 showBlockConfirmation = false
                 onBlock(otherUserId)
             },
+        )
+    }
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            containerColor = Surface,
+            title = { Text("Excluir conversa?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Ela sairá apenas da sua lista. A outra pessoa continuará com o histórico e uma nova mensagem fará a conversa reaparecer.",
+                    color = TextSecondary,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirmation = false
+                        onDeleteConversation()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Pink),
+                    modifier = Modifier.testTag("confirm-delete-conversation"),
+                ) { Text("Excluir", color = Black) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancelar") }
+            },
+        )
+    }
+    if (showLocationConfirmation) {
+        val regionLabel = approximateRegion.orEmpty().replace('-', ' ').uppercase()
+        AlertDialog(
+            onDismissRequest = { showLocationConfirmation = false },
+            containerColor = Surface,
+            title = { Text("Compartilhar região aproximada?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Será enviada apenas a região $regionLabel. Coordenadas e localização em tempo real não serão compartilhadas.",
+                    color = TextSecondary,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLocationConfirmation = false
+                        onSendMessage("Minha localização aproximada: $regionLabel")
+                    },
+                    modifier = Modifier.testTag("confirm-share-location"),
+                ) { Text("Compartilhar") }
+            },
+            dismissButton = { TextButton(onClick = { showLocationConfirmation = false }) { Text("Cancelar") } },
         )
     }
     if (chatPhotoPreviewLoading || chatPhotoPreviewBytes != null) {

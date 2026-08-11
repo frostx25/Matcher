@@ -54,7 +54,7 @@ class ConversationDetailScreenTest {
 
         composeRule.onNodeWithTag("conversation-safety-menu").performClick()
         composeRule.onNodeWithText("Bloquear perfil").assertIsDisplayed()
-        composeRule.onNodeWithText("Denunciar perfil").assertIsDisplayed()
+        composeRule.onNodeWithText("Denunciar conversa").assertIsDisplayed()
         composeRule.onNodeWithTag("block-active-conversation").performClick()
         composeRule.onNodeWithText("Bloquear Maya?").assertIsDisplayed()
         composeRule.onNodeWithTag("confirm-block").performClick()
@@ -165,6 +165,34 @@ class ConversationDetailScreenTest {
     }
 
     @Test
+    fun conversationDeletionRequiresExplicitConfirmation() {
+        var deleteCalls = 0
+        setConversationContent(onDeleteConversation = { deleteCalls += 1 })
+        composeRule.onNodeWithTag("conversation-safety-menu").performClick()
+        composeRule.onNodeWithTag("delete-conversation").performClick()
+        composeRule.onNodeWithText("Excluir conversa?").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals(0, deleteCalls) }
+        composeRule.onNodeWithTag("confirm-delete-conversation").performClick()
+        composeRule.runOnIdle { assertEquals(1, deleteCalls) }
+    }
+
+    @Test
+    fun approximateLocationRequiresConfirmationAndNeverUsesCoordinates() {
+        var sentBody: String? = null
+        setConversationContent(
+            approximateRegion = "br-test",
+            onSendMessage = { body -> sentBody = body; true },
+        )
+        composeRule.onNodeWithTag("conversation-media-menu").performClick()
+        composeRule.onNodeWithTag("conversation-share-location").performClick()
+        composeRule.onNodeWithText("Compartilhar região aproximada?").assertIsDisplayed()
+        composeRule.onNodeWithTag("confirm-share-location").performClick()
+        composeRule.runOnIdle {
+            assertEquals("Minha localização aproximada: BR TEST", sentBody)
+        }
+    }
+
+    @Test
     fun participantTypingStateIsVisibleInHeader() {
         setConversationContent(conversation = syntheticConversation().copy(participantTyping = true))
         composeRule.onNodeWithText("digitando…").assertIsDisplayed()
@@ -184,6 +212,8 @@ class ConversationDetailScreenTest {
         onToggleMute: (Boolean) -> Unit = {},
         onBlock: () -> Unit = {},
         onReport: () -> Unit = {},
+        onDeleteConversation: () -> Unit = {},
+        approximateRegion: String? = null,
     ) {
         composeRule.setContent {
             MatcherTheme {
@@ -199,6 +229,8 @@ class ConversationDetailScreenTest {
                     onToggleArchive = onToggleArchive,
                     onBlock = { onBlock() },
                     onReport = { _: String, _: ReportReason, _: String -> onReport() },
+                    onDeleteConversation = onDeleteConversation,
+                    approximateRegion = approximateRegion,
                     receivedPrivateAlbumAvailable = receivedPrivateAlbumAvailable,
                     myPrivateAlbumAvailable = myPrivateAlbumAvailable,
                     myPrivateAlbumShared = false,

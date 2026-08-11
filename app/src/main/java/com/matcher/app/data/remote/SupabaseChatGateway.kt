@@ -170,6 +170,8 @@ interface RemoteChatGateway {
 
     suspend fun setConversationArchived(conversationId: String, archived: Boolean): Boolean = false
 
+    suspend fun setConversationDeleted(conversationId: String, deleted: Boolean): Boolean = false
+
     suspend fun setConversationTyping(conversationId: String, typing: Boolean): Boolean = false
 
     suspend fun downloadChatPhoto(messageId: String): ByteArray = error("CHAT_PHOTO_NOT_AVAILABLE")
@@ -206,12 +208,14 @@ class SupabaseChatGateway(
             .associateBy { it.conversationId }
         val archivedIds = client.postgrest.rpc("list_archived_conversation_ids")
             .decodeList<String>().toSet()
+        val deletedIds = client.postgrest.rpc("list_deleted_conversation_ids")
+            .decodeList<String>().toSet()
         val typingIds = client.postgrest.rpc("list_typing_conversation_ids")
             .decodeList<String>().toSet()
         val conversations = client.from("conversations").select {
             order("last_message_at", Order.DESCENDING)
             range(0L..49L)
-        }.decodeList<ConversationRow>().map { row ->
+        }.decodeList<ConversationRow>().filterNot { it.id in deletedIds }.map { row ->
             val messages = loadMessages(row.id)
             row.toDomain(
                 messages = messages,
@@ -391,6 +395,15 @@ class SupabaseChatGateway(
             parameters = buildJsonObject {
                 put("target_conversation_id", conversationId)
                 put("archived", archived)
+            },
+        ).decodeAs()
+
+    override suspend fun setConversationDeleted(conversationId: String, deleted: Boolean): Boolean =
+        client.postgrest.rpc(
+            function = "set_conversation_deleted",
+            parameters = buildJsonObject {
+                put("target_conversation_id", conversationId)
+                put("deleted", deleted)
             },
         ).decodeAs()
 

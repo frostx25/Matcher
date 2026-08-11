@@ -1,4 +1,4 @@
-# Matcher — especificação do MVP
+# VibeAli — especificação do MVP
 
 Status: rascunho executável  
 Versão: 1.2
@@ -287,6 +287,7 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-PHOTO-04:** existe somente uma foto pública de perfil por pessoa; a triagem automática reivindica apenas sua candidata e nunca fotos de conversa ou do álbum privado.
 - **AC-PROFILE-01:** ao abrir um perfil público, a pessoa encontra `Conversar` sem rolar, volta pelo topo e acessa bloqueio/denúncia no menu de segurança; a tela exibe somente mídia pública autorizada, campos publicados e faixa de distância aproximada.
 - **AC-PROFILE-02:** o botão contextual `Álbum` permanece junto da ação de conversa, fica desabilitado sem ação disponível e, quando habilitado, separa abrir álbum recebido de liberar/revogar o álbum próprio sem mostrar miniatura privada.
+- **AC-PROFILE-03:** a pessoa escolhe até oito interesses de um catálogo controlado; eles podem ser alterados no Perfil e aparecem publicamente somente em perfis que o solicitante já está autorizado a descobrir, sem endpoint de enumeração anônima.
 - **AC-ALBUM-01:** titular cria somente um álbum, envia até dez imagens e consegue abri-las imediatamente sem aprovação prévia; a décima primeira é recusada pelo servidor mesmo sob concorrência.
 - **AC-ALBUM-02:** conta sem concessão não lista metadados nem lê bytes; conceder acesso a uma pessoa não libera para nenhuma outra.
 - **AC-ALBUM-03:** revogar acesso impede novas listagens/downloads e remove o conteúdo da tela do destinatário, sem afetar concessões de outras pessoas.
@@ -316,7 +317,7 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-03:** uma conversa ativa permite várias mensagens sem consumir novas aberturas.
 - **AC-CHAT-04:** a sexta nova abertura no Free é bloqueada pelo servidor e oferece upgrade sem perder conversas existentes.
 - **AC-CHAT-05:** a conversa ativa mantém identidade pública, voltar, álbum contextual e segurança acessíveis sem rolar; abrir álbum recebido e liberar/revogar o álbum próprio são operações separadas e nenhuma miniatura privada aparece no chat.
-- **AC-CHAT-06:** bloquear e denunciar ficam disponíveis no menu de segurança; o compositor acompanha o teclado, recusa texto vazio e só limpa uma mensagem depois de o repositório confirmar o envio.
+- **AC-CHAT-06:** bloquear, denunciar a conversa e denunciar uma mensagem ou foto específica ficam disponíveis no menu de segurança ou no conteúdo correspondente; a denúncia da conversa referencia seu identificador autorizado sem copiar o histórico inteiro. O compositor acompanha o teclado, recusa texto vazio e só limpa uma mensagem depois de o repositório confirmar o envio.
 - **AC-CHAT-07:** a lista exibe apenas conversas ativas e, quando vazia, oferece voltar à descoberta; o diálogo da primeira mensagem identifica o destinatário, mostra a quota, explica que o envio abre a conversa sem aceite e mantém o botão principal desabilitado para texto vazio.
 - **AC-CHAT-08:** o compositor oferece `Selecionar foto` e liberar/revogar o álbum como ações diferentes; selecionar foto não cria concessão de álbum e liberar o álbum não envia nem revela miniatura privada no histórico.
 - **AC-CHAT-09:** repetir a mesma chave de envio de foto produz uma única mensagem; a mídia válida fica disponível imediatamente aos participantes ativos e não bloqueados, sem triagem automática.
@@ -325,6 +326,8 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-CHAT-12:** a notificação usa texto neutro e não inclui corpo de mensagem, bytes, URL, caminho de Storage ou detalhes livres; denunciar mensagem ou foto cria um caso referenciando somente IDs autorizados.
 - **AC-CHAT-13:** uma instalação autenticada registra/rotaciona seu FID sem expô-lo; o worker entrega cada outbox sob lease, desativa instalação permanentemente inválida, repete somente falha transitória e respeita o silenciamento decidido antes da criação da outbox.
 - **AC-CHAT-14:** o worker de visão não reivindica nem baixa fotos de conversa ou do álbum privado; somente a candidata da foto pública de perfil pode entrar na triagem automática.
+- **AC-CHAT-15:** excluir uma conversa a oculta somente para quem executou a ação, sem apagar o histórico do outro participante; uma mensagem posterior do outro participante restaura a conversa. A operação é autoritativa no servidor, não remove evidência sob retenção e não equivale a bloquear.
+- **AC-CHAT-16:** compartilhar localização na conversa envia somente a região aproximada já publicada pela própria pessoa, após confirmação explícita; o app não envia coordenadas, posição em tempo real ou localização em segundo plano.
 - **AC-PHOTO-01:** o titular distingue `Em análise`, `Aguardando revisão`, `Foto aprovada`, bloqueio por conteúdo adulto e bloqueio por conteúdo abusivo. Uma candidata em análise ou revisão não fica visível a terceiros e não substitui uma foto já aprovada.
 - **AC-MOD-01:** somente moderadora ativa consegue listar candidatas em `review` ou pedir sua prévia temporária; contas comuns não recebem caminho, URL, nome de objeto ou metadado da fila.
 - **AC-MOD-02:** a decisão humana compara o caminho da candidata exibida, é atômica e auditada. Aprovar publica somente a candidata ainda atual; bloquear preserva uma foto anteriormente aprovada e mantém a candidata privada.

@@ -105,7 +105,10 @@ select is(
 );
 set local role postgres;
 select results_eq(
-    'select state from private.notification_outbox',
+    $$select outbox.state
+        from private.notification_outbox outbox
+        join public.messages message on message.id = outbox.message_id
+       where message.conversation_id = (select id from push_chat)$$,
     array['sent'::text],
     'completed device delivery completes its outbox'
 );

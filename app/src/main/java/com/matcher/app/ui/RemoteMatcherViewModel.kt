@@ -1047,6 +1047,15 @@ class RemoteMatcherViewModel(
         }
     }
 
+    fun deleteConversation(conversationId: String, onDeleted: () -> Unit = {}) {
+        if (!requireActiveAccount()) return
+        launchRemote { token ->
+            chatGateway.setConversationDeleted(conversationId, true)
+            reloadChat(token)
+            onDeleted()
+        }
+    }
+
     fun openChatPhoto(messageId: String) {
         if (!requireActiveAccount()) return
         closeChatPhoto()
@@ -1244,6 +1253,19 @@ class RemoteMatcherViewModel(
         }
         launchRemote { token ->
             profileGateway.updateMyProfile(displayName, bio, intent)
+            ensureSessionWorkIsCurrent(token)
+            refreshSignedInData(token)
+        }
+    }
+
+    fun updateMyInterests(interests: Set<String>) {
+        if (!requireActiveAccount()) return
+        if (interests.size > 8 || interests.any { it !in PROFILE_INTEREST_IDS }) {
+            setError("Escolha no máximo oito interesses disponíveis.")
+            return
+        }
+        launchRemote { token ->
+            profileGateway.updateMyInterests(interests.sorted())
             ensureSessionWorkIsCurrent(token)
             refreshSignedInData(token)
         }
@@ -1939,6 +1961,11 @@ class RemoteMatcherViewModel(
     }
 }
 
+private val PROFILE_INTEREST_IDS = setOf(
+    "amizade", "conversa", "cinema", "música", "viagens", "games",
+    "academia", "gastronomia", "pets", "natureza", "arte", "tecnologia",
+)
+
 private fun String.otpCooldownKey(): String = trim().lowercase(Locale.ROOT)
 
 internal fun isTrustedAgeVerificationUrl(value: String): Boolean = runCatching {
@@ -1977,7 +2004,7 @@ private fun Throwable.toOtpVerificationMessage(): String = when (toEmailOtpReque
 }
 
 private fun Throwable.toUserMessage(): String = when (matcherCode()) {
-    "ADULTS_ONLY" -> "O Matcher é exclusivo para pessoas com 18 anos ou mais."
+    "ADULTS_ONLY" -> "O VibeAli é exclusivo para pessoas com 18 anos ou mais."
     "TERMS_REQUIRED" -> "Aceite os Termos e a Política de Privacidade para continuar."
     "BIRTH_YEAR_LOCKED" -> "O ano de nascimento já foi confirmado e não pode ser alterado aqui."
     "INVALID_GENDER_IDENTITY", "INVALID_GENDER_SELF_DESCRIPTION", "INVALID_GENDER_VISIBILITY" ->

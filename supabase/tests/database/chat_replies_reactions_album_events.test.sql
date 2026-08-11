@@ -1,4 +1,6 @@
 begin;
+set local role postgres;
+set local search_path = public, testing, extensions;
 select plan(13);
 
 select has_column('public', 'messages', 'reply_to_message_id', 'messages support replies');

@@ -2,6 +2,18 @@
 
 Atualizado em: 2026-08-11
 
+## Checkpoint de 11/08/2026 — fechamento das prioridades 1 a 6
+
+- Denúncia superior da conversa agora é identificada corretamente como denúncia da conversa; denúncias específicas de mensagem/foto continuam vinculadas ao conteúdo autorizado.
+- Álbuns privados e moderação foram revalidados junto das regras de concessão, revogação, bloqueio, denúncia, retenção e limpeza.
+- Conversas agora podem ser excluídas somente para o próprio usuário. O histórico permanece para o outro participante e uma nova mensagem restaura a conversa.
+- O compositor pode compartilhar, após confirmação, somente a região aproximada já publicada no perfil; coordenadas e localização em segundo plano não são usadas.
+- Descoberta foi auditada com paginação, filtros, presença aproximada, favoritos, ocultações e bloqueios autoritativos no servidor.
+- Perfis agora aceitam até oito interesses de um catálogo controlado e os entregam apenas a solicitantes autenticados já autorizados a descobrir o perfil.
+- Migrations `20260811150000_private_conversation_deletion.sql` e `20260811160000_profile_interests.sql` aplicadas no Matcher Dev; chaves existentes foram preservadas.
+- Validação: 18 suítes pgTAP com 539 asserções; build, testes unitários, lint e compilação instrumentalizada aprovados; 10 testes Compose da conversa passaram no AVD API 35.
+- O APK final foi instalado no emulador. O runner instrumentalizado removeu os dados do app, portanto o emulador ficou novamente na tela de login.
+
 ## Checkpoint de 11/08/2026 — privacidade e experiência madura
 
 - Central de privacidade no perfil: atividade, perfis ocultos/bloqueados, restaurar e desbloquear.
@@ -185,3 +197,17 @@ A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preser
 - `docs/PUSH-AND-CHAT-MODERATION.md` — arquitetura, segurança e ativação dos dois workers.
 
 Este arquivo não contém segredos nem dados pessoais.
+
+## Checkpoint de identidade VibeAli — 11/08/2026
+
+- Nome público oficial alterado de Matcher para `VibeAli`; domínio oficial: `vibeali.shop`.
+- Nome, ícone Android, ícone de notificação, textos do aplicativo, retorno de verificação etária, notificações push e painel de moderação foram atualizados.
+- Guia e fonte visual: `docs/brand/BRAND.md` e `docs/brand/vibeali-logo-source.png`.
+- Identificadores técnicos (`com.matcher.app`, `matcher://` e canal `matcher_messages`) foram mantidos para preservar instalações, Firebase e integrações existentes.
+- Migration `20260811170000_vibeali_notification_brand.sql` aplicada no `Matcher Dev` e funções `notification-worker` e `age-verification-return` republicadas.
+- Painel publicado em produção e associado a `https://matcher-moderation-panel.vercel.app/`.
+- APK compilado, reinstalado e aberto no emulador `emulator-5554`; a tela de login mostra `VibeAli`.
+- Android: build, testes unitários, lint e compilação dos testes instrumentados aprovados. Painel: 2/2 testes e build aprovados.
+- Banco: 539/539 asserções passaram após reset limpo. A asserção de consolidação do outbox foi isolada à conversa criada pelo teste, sem ser contaminada por mensagens legítimas do `seed.sql`.
+- Emulador Android API 35: 42/42 testes instrumentados passaram, sem falhas.
+- `vibeali.shop` já delega DNS ao Cloudflare (`evelyn`/`louis`), mas ainda não possui registro A/CNAME; não alterar a Site URL do Supabase até o domínio responder por HTTPS.

@@ -105,6 +105,8 @@ scenarios:
       - report_details: "Conteúdo sintético para teste"
     then:
       - moderation_case_created: true
+      - report_references_authorized_conversation_id: true
+      - conversation_history_copied_to_report: false
       - reported_user_can_continue_sending: false
       - sensitive_content_logged: false
 
@@ -277,6 +279,32 @@ scenarios:
       - report_references_authorized_message_id: true
       - reported_media_hidden_for_reporter: true
       - sensitive_content_logged: false
+
+  - id: CHAT-024-delete-for-self
+    name: Exclusão privada não apaga a conversa do outro participante
+    given:
+      - conversation_state: active
+      - current_user_is_participant: true
+    when:
+      - participant_action: delete_conversation
+    then:
+      - hidden_for_current_user: true
+      - visible_for_other_participant: true
+      - block_created: false
+      - new_incoming_message_restores_conversation: true
+
+  - id: CHAT-025-share-approximate-location
+    name: Localização compartilhada preserva a aproximação
+    given:
+      - current_user_region: br-test
+      - exact_coordinates_available_to_chat: false
+    when:
+      - participant_action: share_location
+      - confirmation_accepted: true
+    then:
+      - message_contains_approximate_region: true
+      - message_contains_coordinates: false
+      - background_location_requested: false
 
   - id: CHAT-021-fcm-private-delivery
     name: FCM entrega somente uma notificação neutra sob lease

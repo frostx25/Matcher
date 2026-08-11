@@ -193,7 +193,7 @@ class MatcherFirebaseMessagingService : FirebaseMessagingService() {
         )
         val notification = NotificationCompat.Builder(this, FirebasePushGateway.MessageChannelId)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Matcher")
+            .setContentTitle("VibeAli")
             .setContentText("Nova mensagem")
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

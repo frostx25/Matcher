@@ -6,8 +6,14 @@
     <path
         android:fillColor="#0B0B0F"
         android:pathData="M0,0h48v48h-48z" />
+    <path android:fillColor="#FF2D7A" android:pathData="M14,9a4,4 0,1 0,0 8a4,4 0,1 0,0 -8" />
+    <path android:fillColor="#FF6B8F" android:pathData="M34,9a4,4 0,1 0,0 8a4,4 0,1 0,0 -8" />
     <path
         android:fillColor="#FF2D7A"
-        android:pathData="M8,36V12h5l11,14L35,12h5v24h-5V20L24,34 13,20v16z" />
+        android:pathData="M6,22C9,17 16,16 21,20L24,23L19,28L13,22L24,39L24,45L6,25Z" />
+    <path
+        android:fillColor="#FF6B8F"
+        android:pathData="M42,22C39,17 32,16 27,20L24,23L29,28L35,22L24,39L24,45L42,25Z" />
+    <path android:fillColor="#8B78FF" android:pathData="M20,34L24,39L28,34L24,36Z" />
 </vector>
 

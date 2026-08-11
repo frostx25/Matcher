@@ -28,13 +28,13 @@ Deno.serve((request) => {
   const completed = deepLink === completeDeepLink;
   const title = completed ? "Verificação concluída" : "Verificação cancelada";
   const message = completed
-    ? "Volte ao Matcher para consultar o resultado confirmado pelo servidor."
-    : "Você pode voltar ao Matcher e tentar novamente quando quiser.";
+    ? "Volte ao VibeAli para consultar o resultado confirmado pelo servidor."
+    : "Você pode voltar ao VibeAli e tentar novamente quando quiser.";
   const html = `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="0;url=${deepLink}"><title>${title}</title>
 <style>body{font-family:system-ui;background:#0b0b0f;color:#fff7fb;display:grid;place-items:center;min-height:100vh;margin:0}main{max-width:34rem;padding:2rem;text-align:center}a{display:inline-block;background:#ff2d7a;color:#0b0b0f;padding:1rem 1.4rem;border-radius:1rem;text-decoration:none;font-weight:700}</style>
-</head><body><main><h1>${title}</h1><p>${message}</p><a href="${deepLink}">Voltar ao Matcher</a></main></body></html>`;
+</head><body><main><h1>${title}</h1><p>${message}</p><a href="${deepLink}">Voltar ao VibeAli</a></main></body></html>`;
 
   return new Response(request.method === "HEAD" ? null : html, {
     headers: responseHeaders,

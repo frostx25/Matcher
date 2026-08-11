@@ -87,7 +87,7 @@ internal fun AgeVerificationScreen(
             fontWeight = FontWeight.Black,
         )
         Text(
-            text = "Você já pode usar o Matcher como não verificado. Esta etapa opcional concede o selo 18+ verificado.",
+            text = "Você já pode usar o VibeAli como não verificado. Esta etapa opcional concede o selo 18+ verificado.",
             color = TextSecondary,
             fontSize = 15.sp,
             lineHeight = 21.sp,
@@ -209,7 +209,7 @@ internal fun AgeVerificationScreen(
             Text("Atualizar status")
         }
         Text(
-            text = "A Didit processa o documento e a selfie para realizar a verificação. O Matcher recebe apenas o resultado necessário e não armazena essas imagens.",
+            text = "A Didit processa o documento e a selfie para realizar a verificação. O VibeAli recebe apenas o resultado necessário e não armazena essas imagens.",
             color = TextSecondary,
             fontSize = 12.sp,
             lineHeight = 17.sp,
@@ -330,7 +330,7 @@ internal fun RemoteConfigurationErrorScreen() {
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "Matcher indisponível",
+            text = "VibeAli indisponível",
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 26.sp,
             fontWeight = FontWeight.Black,

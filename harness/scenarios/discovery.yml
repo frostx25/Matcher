@@ -2,6 +2,18 @@ version: 4
 domain: gender-discovery-preferences
 
 scenarios:
+  - id: DISCOVERY-000-profile-interests
+    name: Interesses públicos respeitam a autorização da descoberta
+    given:
+      - selected_interests: [cinema, viagens]
+      - requester_is_authenticated: true
+    when:
+      - profile_is_visible_to_requester: true
+    then:
+      - public_interests: [cinema, viagens]
+      - free_form_interest_accepted: false
+      - anonymous_enumeration_allowed: false
+
   - id: DISC-GENDER-001-multi-select-server-filter
     name: Servidor aplica preferência multi-seleção antes da paginação
     given:

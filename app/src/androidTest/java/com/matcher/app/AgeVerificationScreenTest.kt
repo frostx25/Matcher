@@ -62,14 +62,14 @@ class AgeVerificationScreenTest {
 
         composeRule.onNodeWithTag("age-verification-screen").assertIsDisplayed()
         composeRule.onNodeWithText(
-            "Você já pode usar o Matcher como não verificado. Esta etapa opcional concede o selo 18+ verificado.",
+            "Você já pode usar o VibeAli como não verificado. Esta etapa opcional concede o selo 18+ verificado.",
         ).fetchSemanticsNode()
         composeRule.onNodeWithText(
             "A selfie ao vivo passa por prova de vida passiva e é comparada à foto do documento.",
         ).fetchSemanticsNode()
         composeRule.onNodeWithText(
             "A Didit processa o documento e a selfie para realizar a verificação. " +
-                "O Matcher recebe apenas o resultado necessário e não armazena essas imagens.",
+                "O VibeAli recebe apenas o resultado necessário e não armazena essas imagens.",
         ).fetchSemanticsNode()
         composeRule.onNodeWithTag("start-age-verification").assertIsNotEnabled()
         composeRule.onNodeWithTag("didit-privacy-notice-link").performScrollTo().performClick()

@@ -1,0 +1,14 @@
+begin;
+set local role postgres;
+set local search_path = public, testing, extensions;
+select plan(8);
+select has_column('public','profiles','interests','profiles expose curated interests');
+select has_function('public','update_my_interests',array['text[]'],'owner update RPC exists');
+select has_function('public','get_public_profile_interests',array['uuid[]'],'authorized batch read exists');
+select has_function('public','get_my_interests',array[]::text[],'private owner interests RPC exists');
+select function_privs_are('public','update_my_interests',array['text[]'],'anon',array[]::text[],'anonymous cannot update interests');
+select function_privs_are('public','update_my_interests',array['text[]'],'authenticated',array['EXECUTE'],'authenticated owner can update interests');
+select function_privs_are('public','get_public_profile_interests',array['uuid[]'],'anon',array[]::text[],'anonymous cannot enumerate interests');
+select function_privs_are('public','get_public_profile_interests',array['uuid[]'],'authenticated',array['EXECUTE'],'authenticated discovery can batch read allowed interests');
+select * from finish();
+rollback;

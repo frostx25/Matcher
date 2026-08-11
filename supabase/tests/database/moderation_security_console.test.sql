@@ -25,6 +25,10 @@ insert into private.moderation_staff(user_id,staff_role) values
 set local role authenticated;
 set local "request.jwt.claim.role"='authenticated';
 set local "request.jwt.claim.sub"='00000000-0000-0000-0000-000000000952';
+-- Assertions execute as the test owner so pgTAP remains callable; the JWT
+-- claims above still drive auth.uid() inside the SECURITY DEFINER RPCs.
+set local role postgres;
+set local search_path = public, testing, extensions;
 select is((public.get_moderation_console_overview()->>'role'),'reviewer','reviewer receives reviewer role');
 select throws_ok($$select public.list_moderation_staff()$$,'42501','ADMIN_REQUIRED','reviewer cannot list staff');
 select throws_ok($$select public.moderation_console_action('suspend_user','00000000-0000-0000-0000-000000000953')$$,'42501','ADMIN_REQUIRED','reviewer cannot sanction accounts');

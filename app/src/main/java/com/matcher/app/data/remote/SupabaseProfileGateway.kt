@@ -30,6 +30,7 @@ data class RemoteProfile(
     @SerialName("gender_visible") val genderVisible: Boolean = false,
     @SerialName("is_favorite") val isFavorite: Boolean = false,
     @SerialName("activity_status") val activityStatus: String? = null,
+    val interests: List<String> = emptyList(),
     @Transient val avatarCandidatePath: String? = null,
     @Transient val avatarModerationStatus: String = "none",
     @Transient val avatarUrl: String? = null,
@@ -145,6 +146,8 @@ interface ProfileGateway {
 
     suspend fun updateMyProfile(displayName: String, bio: String, intent: String): Boolean = false
 
+    suspend fun updateMyInterests(interests: List<String>): Boolean = false
+
     suspend fun exportMyAccountData(): String = error("Account export is not supported")
 }
 
@@ -160,6 +163,14 @@ class SupabaseProfileGateway(
                 put("intent", intent.trim())
             },
         ).decodeAs()
+
+    override suspend fun updateMyInterests(interests: List<String>): Boolean {
+        require(interests.size <= 8 && interests.distinct().size == interests.size)
+        return client.postgrest.rpc(
+            "update_my_interests",
+            buildJsonObject { put("selected_interests", interests.toJsonArray()) },
+        ).decodeAs()
+    }
 
     override suspend fun exportMyAccountData(): String = client.postgrest
         .rpc("export_my_account_data").decodeAs<kotlinx.serialization.json.JsonObject>().toString()
@@ -206,6 +217,7 @@ class SupabaseProfileGateway(
             .singleOrNull()
             ?: return null
         val settings = getGenderSettings()
+        val interests = client.postgrest.rpc("get_my_interests").decodeAs<List<String>>()
         val photoState = client.postgrest
             .rpc("get_my_profile_photo_state")
             .decodeList<ProfilePhotoState>()
@@ -214,6 +226,7 @@ class SupabaseProfileGateway(
             genderIdentityIds = settings.genderIdentityIds,
             genderSelfDescription = settings.genderSelfDescription,
             genderVisible = settings.genderVisible,
+            interests = interests,
         ).withOwnerPhotoState(photoState)
     }
 
@@ -232,7 +245,7 @@ class SupabaseProfileGateway(
         maximumAge: Int,
         verifiedOnly: Boolean,
         hasPhotoOnly: Boolean,
-    ): List<RemoteProfile> = client.postgrest.rpc(
+    ): List<RemoteProfile> = enrichWithInterests(client.postgrest.rpc(
         "search_discovery_profiles",
         buildJsonObject {
             put("search_text", query.trim())
@@ -242,7 +255,7 @@ class SupabaseProfileGateway(
             put("has_photo_only", hasPhotoOnly)
             put("page_size", 50)
         },
-    ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() }
+    ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() })
 
     override suspend fun discoveryPage(
         cursor: String,
@@ -279,7 +292,7 @@ class SupabaseProfileGateway(
         val cursorVersion = rows.firstOrNull()?.preferenceCursorVersion
             ?: getGenderSettings().preferenceCursorVersion
         return DiscoveryPage(
-            profiles = rows.map { it.toRemoteProfile().withApprovedAvatar() },
+            profiles = enrichWithInterests(rows.map { it.toRemoteProfile().withApprovedAvatar() }),
             nextCursor = rows.lastOrNull()?.id.takeIf { rows.lastOrNull()?.hasMore == true },
             preferenceCursorVersion = cursorVersion,
         )
@@ -340,10 +353,19 @@ class SupabaseProfileGateway(
 
     override suspend fun favoriteProfiles(pageSize: Int): List<RemoteProfile> {
         require(pageSize in 1..100)
-        return client.postgrest.rpc(
+        return enrichWithInterests(client.postgrest.rpc(
             "get_favorite_profiles",
             buildJsonObject { put("page_size", pageSize) },
-        ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() }
+        ).decodeList<DiscoveryProfileRow>().map { it.toRemoteProfile().withApprovedAvatar() })
+    }
+
+    private suspend fun enrichWithInterests(profiles: List<RemoteProfile>): List<RemoteProfile> {
+        if (profiles.isEmpty()) return profiles
+        val byProfile = client.postgrest.rpc(
+            "get_public_profile_interests",
+            buildJsonObject { put("target_ids", profiles.map(RemoteProfile::id).toJsonArray()) },
+        ).decodeList<PublicProfileInterestsRow>().associate { it.profileId to it.interests }
+        return profiles.map { profile -> profile.copy(interests = byProfile[profile.id].orEmpty()) }
     }
 
     override suspend fun setProfileFavorite(targetUserId: String, favorite: Boolean): Boolean {
@@ -465,6 +487,12 @@ private data class ProfilePhotoState(
     @SerialName("moderation_status") val moderationStatus: String = "none",
     @SerialName("automation_state") val automationState: String = "completed",
     @SerialName("approved_path") val approvedPath: String? = null,
+)
+
+@Serializable
+private data class PublicProfileInterestsRow(
+    @SerialName("profile_id") val profileId: String,
+    val interests: List<String>,
 )
 
 @Serializable

@@ -61,7 +61,7 @@ internal fun OnboardingScreen(onComplete: (LocalProfile) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
-            text = "Bem-vindo ao Matcher",
+            text = "Bem-vindo ao VibeAli",
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 30.sp,
             fontWeight = FontWeight.ExtraBold,
@@ -100,7 +100,7 @@ internal fun OnboardingScreen(onComplete: (LocalProfile) -> Unit) {
         )
         if (invalidAdultYear) {
             Text(
-                text = "O Matcher é exclusivo para pessoas com 18 anos ou mais.",
+                text = "O VibeAli é exclusivo para pessoas com 18 anos ou mais.",
                 color = Pink,
                 fontSize = 13.sp,
                 modifier = Modifier.testTag("age-error"),

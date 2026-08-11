@@ -40,6 +40,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -258,7 +259,7 @@ internal fun RemoteAuthScreen(
             .testTag("remote-auth-screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Matcher", color = MaterialTheme.colorScheme.onBackground, fontSize = 34.sp, fontWeight = FontWeight.Black)
+        Text("VibeAli", color = MaterialTheme.colorScheme.onBackground, fontSize = 34.sp, fontWeight = FontWeight.Black)
         Text("Entre por e-mail para usar o backend de desenvolvimento.", color = TextSecondary)
         OutlinedTextField(
             value = email,
@@ -635,6 +636,12 @@ private fun RemoteHome(
                         activeConversationId = null
                     }
                 },
+                onDeleteConversation = {
+                    viewModel.deleteConversation(activeConversation.id) {
+                        activeConversationId = null
+                    }
+                },
+                approximateRegion = profile.regionCode,
                 onTypingChanged = { viewModel.setConversationTyping(activeConversation.id, it) },
                 onBlock = { target -> viewModel.blockUser(target) { activeConversationId = null } },
                 onReport = { target, reason, details ->
@@ -746,6 +753,7 @@ private fun RemoteHome(
                     onSignOut = viewModel::signOut,
                     onDeleteAccount = viewModel::deleteAccount,
                     onUpdateProfile = viewModel::updateMyProfile,
+                    onUpdateInterests = viewModel::updateMyInterests,
                     onExportAccount = viewModel::prepareAccountExport,
                     showActivityStatus = state.privacyCenter.settings.showActivityStatus,
                     hiddenProfiles = state.privacyCenter.hiddenProfiles,
@@ -1199,6 +1207,7 @@ private fun RemoteProfileScreen(
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
     onUpdateProfile: (String, String, String) -> Unit,
+    onUpdateInterests: (Set<String>) -> Unit,
     onExportAccount: () -> Unit,
     showActivityStatus: Boolean,
     hiddenProfiles: List<RemoteProfile>,
@@ -1217,6 +1226,7 @@ private fun RemoteProfileScreen(
     var displayNameDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.displayName) }
     var bioDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.bio) }
     var intentDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.intent) }
+    var interestsDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.interests.toSet()) }
     var identityDraft by remember(genderSettings, editGender) {
         mutableStateOf(genderSettings?.genderIdentityIds?.toSet() ?: emptySet())
     }
@@ -1306,9 +1316,31 @@ private fun RemoteProfileScreen(
                 OutlinedTextField(displayNameDraft, { displayNameDraft = it.take(40) }, Modifier.fillMaxWidth(), label = { Text("Nome") })
                 OutlinedTextField(bioDraft, { bioDraft = it.take(500) }, Modifier.fillMaxWidth(), label = { Text("Bio") }, minLines = 3)
                 OutlinedTextField(intentDraft, { intentDraft = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("O que procura") })
+                Text("Interesses (até 8)", color = TextSecondary, fontSize = 13.sp)
+                PROFILE_INTERESTS.chunked(2).forEach { rowInterests ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowInterests.forEach { interest ->
+                            FilterChip(
+                                selected = interest.first in interestsDraft,
+                                onClick = {
+                                    interestsDraft = if (interest.first in interestsDraft) {
+                                        interestsDraft - interest.first
+                                    } else if (interestsDraft.size < 8) {
+                                        interestsDraft + interest.first
+                                    } else {
+                                        interestsDraft
+                                    }
+                                },
+                                label = { Text(interest.second) },
+                                modifier = Modifier.weight(1f).testTag("interest-${interest.first}"),
+                            )
+                        }
+                    }
+                }
                 Button(
                     onClick = {
                         onUpdateProfile(displayNameDraft, bioDraft, intentDraft)
+                        onUpdateInterests(interestsDraft)
                         editPublicProfile = false
                     },
                     enabled = displayNameDraft.trim().length >= 2 && intentDraft.isNotBlank(),
@@ -1676,7 +1708,7 @@ private fun RemoteLoadingScreen() {
     ) {
         CircularProgressIndicator(color = Pink)
         Spacer(Modifier.height(12.dp))
-        Text("Conectando ao Matcher…", color = TextSecondary)
+        Text("Conectando ao VibeAli…", color = TextSecondary)
     }
 }
 
@@ -1704,7 +1736,7 @@ private fun RemoteProfile.toDemoProfile(): DemoProfile {
         distance = "na região",
         intent = intent,
         bio = bio,
-        tags = genderTags,
+        tags = genderTags + interests.map { id -> PROFILE_INTERESTS.firstOrNull { it.first == id }?.second ?: id },
         initials = displayName.trim().take(2).uppercase(),
         colors = palette[(id.hashCode() and Int.MAX_VALUE) % palette.size],
         verified = verified,
@@ -1713,3 +1745,18 @@ private fun RemoteProfile.toDemoProfile(): DemoProfile {
         activityStatus = activityStatus,
     )
 }
+
+private val PROFILE_INTERESTS = listOf(
+    "amizade" to "Amizade",
+    "conversa" to "Conversa",
+    "cinema" to "Cinema",
+    "música" to "Música",
+    "viagens" to "Viagens",
+    "games" to "Games",
+    "academia" to "Academia",
+    "gastronomia" to "Gastronomia",
+    "pets" to "Pets",
+    "natureza" to "Natureza",
+    "arte" to "Arte",
+    "tecnologia" to "Tecnologia",
+)

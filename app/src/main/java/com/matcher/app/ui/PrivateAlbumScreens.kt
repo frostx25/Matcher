@@ -776,7 +776,7 @@ internal fun ReceivedPrivateAlbumScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Não compartilhe imagens sem consentimento. O Matcher não consegue impedir capturas externas.",
+                    "Não compartilhe imagens sem consentimento. O VibeAli não consegue impedir capturas externas.",
                     color = TextSecondary,
                     fontSize = 11.sp,
                 )

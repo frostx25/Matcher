@@ -615,7 +615,7 @@ internal fun ProfileDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text("Distância com privacidade", color = SoftPink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text("O Matcher mostra apenas uma faixa aproximada. Sua localização exata nunca aparece aqui.", color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text("O VibeAli mostra apenas uma faixa aproximada. Sua localização exata nunca aparece aqui.", color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
         }
