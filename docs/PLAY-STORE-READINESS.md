@@ -12,14 +12,18 @@
 
 - [ ] Criar o projeto Supabase de produção separado e aplicar migrations/functions por pipeline.
 - [ ] Definir a chave de upload da Play Store fora do repositório e guardar cópia recuperável.
-- [ ] Publicar Política de Privacidade em URL estável no domínio `vibeali.shop`.
-- [ ] Publicar página web de solicitação de exclusão de conta e dados.
+- [x] Publicar Política de Privacidade em `https://vibeali.shop/privacidade/`.
+- [x] Publicar página web de solicitação de exclusão em `https://vibeali.shop/excluir-conta/`.
 - [ ] Definir e validar e-mail de suporte público no domínio.
+- [ ] Inserir na Política de Privacidade a identificação legal e o endereço do responsável quando a estrutura de publicação estiver definida.
 - [ ] Preencher Data safety a partir do inventário real de Auth, localização aproximada, fotos, mensagens, FCM, Didit e moderação.
 - [ ] Responder à classificação de conteúdo para um aplicativo exclusivo para maiores de 18 anos.
 - [ ] Produzir capturas com contas e imagens sintéticas, sem conversa ou dado pessoal real.
 - [ ] Executar teste fechado antes de solicitar produção.
 - [ ] Validar backup/restore, alertas, limites, retenção, atendimento e apelação de moderação.
+- [ ] Publicar Termos de Uso e Política de Conteúdo compatíveis com o fluxo 18+ e conteúdo gerado por usuários.
+
+Rascunhos operacionais: `PLAY-STORE-DATA-SAFETY.md`, `PLAY-STORE-CONTENT-RATING.md` e `PLAY-STORE-SCREENSHOTS.md`.
 
 ## Artefato local
 
