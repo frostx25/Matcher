@@ -13,6 +13,8 @@ Antes de publicar, liberar TCP 80/443 e UDP 443 tanto no firewall da Oracle Clou
 
 - Política de Privacidade: `https://vibeali.shop/privacidade/`
 - Exclusão de conta: `https://vibeali.shop/excluir-conta/`
+- Termos de Uso: `https://vibeali.shop/termos/`
+- Política de Conteúdo: `https://vibeali.shop/conteudo/`
 - Suporte pretendido: `suporte@vibeali.shop`
 
 O endereço de suporte precisa ter caixa ou encaminhamento ativo antes da análise da Play Store. A política também precisa receber a identificação legal do responsável quando a estrutura de publicação for definida.

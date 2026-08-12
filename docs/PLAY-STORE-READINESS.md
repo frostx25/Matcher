@@ -21,7 +21,7 @@
 - [ ] Produzir capturas com contas e imagens sintéticas, sem conversa ou dado pessoal real.
 - [ ] Executar teste fechado antes de solicitar produção.
 - [ ] Validar backup/restore, alertas, limites, retenção, atendimento e apelação de moderação.
-- [ ] Publicar Termos de Uso e Política de Conteúdo compatíveis com o fluxo 18+ e conteúdo gerado por usuários.
+- [x] Publicar Termos de Uso e Política de Conteúdo compatíveis com o fluxo 18+ e conteúdo gerado por usuários.
 
 Rascunhos operacionais: `PLAY-STORE-DATA-SAFETY.md`, `PLAY-STORE-CONTENT-RATING.md` e `PLAY-STORE-SCREENSHOTS.md`.
 
