@@ -1,12 +1,14 @@
 begin;
 set local role postgres;
 set local search_path = public, testing, extensions;
-select plan(12);
+select plan(18);
 
 select has_table('private', 'account_moderation_sanctions', 'sanctions are private');
 select ok(not has_table_privilege('authenticated', 'private.account_moderation_sanctions', 'SELECT'), 'clients cannot inspect sanctions directly');
 select has_function('public', 'get_moderation_console_overview', array[]::text[], 'overview RPC exists');
 select has_function('public', 'moderation_console_action', array['text','uuid','uuid','uuid','uuid','text','integer'], 'normalized action RPC exists');
+select has_function('public', 'list_moderation_cases_v2', array['integer','text','text','text','text','text'], 'filtered queue RPC exists');
+select has_function('public', 'get_moderation_user_detail', array['uuid'], 'user dossier RPC exists');
 
 insert into auth.users (id, email, email_confirmed_at, raw_user_meta_data) values
  ('00000000-0000-0000-0000-000000000951','console-admin@matcher.invalid',now(),'{}'),
@@ -30,6 +32,10 @@ set local "request.jwt.claim.sub"='00000000-0000-0000-0000-000000000952';
 set local role postgres;
 set local search_path = public, testing, extensions;
 select is((public.get_moderation_console_overview()->>'role'),'reviewer','reviewer receives reviewer role');
+select ok(public.get_moderation_console_overview() ? 'messages_24h','overview includes live platform metrics');
+select is(public.get_moderation_user_detail('00000000-0000-0000-0000-000000000953')->>'user_id','00000000-0000-0000-0000-000000000953','dossier resolves the requested account');
+select ok(public.get_moderation_user_detail('00000000-0000-0000-0000-000000000953') ? 'access','dossier includes privacy-minimized access summary');
+select ok(not (public.get_moderation_user_detail('00000000-0000-0000-0000-000000000953') ? 'email'),'dossier does not expose email');
 select throws_ok($$select public.list_moderation_staff()$$,'42501','ADMIN_REQUIRED','reviewer cannot list staff');
 select throws_ok($$select public.moderation_console_action('suspend_user','00000000-0000-0000-0000-000000000953')$$,'42501','ADMIN_REQUIRED','reviewer cannot sanction accounts');
 
