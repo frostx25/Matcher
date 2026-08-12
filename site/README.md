@@ -17,4 +17,4 @@ Antes de publicar, liberar TCP 80/443 e UDP 443 tanto no firewall da Oracle Clou
 - Política de Conteúdo: `https://vibeali.shop/conteudo/`
 - Suporte pretendido: `suporte@vibeali.shop`
 
-O endereço de suporte precisa ter caixa ou encaminhamento ativo antes da análise da Play Store. A política também precisa receber a identificação legal do responsável quando a estrutura de publicação for definida.
+`suporte@vibeali.shop` usa Cloudflare Email Routing e encaminha para a caixa operacional verificada. A política ainda precisa receber a identificação legal do responsável quando a estrutura de publicação for definida.
