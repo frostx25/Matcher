@@ -341,10 +341,20 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.
 - **AC-BILL-01:** entitlement pago só é ativado após validação de compra no backend.
 - **AC-DATA-01:** o usuário encontra a exclusão dentro do app; ao confirmar, a conta deixa de autenticar/agir imediatamente, sai da descoberta, fecha conversas e revoga acessos, enquanto a limpeza física segue uma fila privada idempotente e retenções justificadas.
+- **AC-REL-01:** a variante release gera um AAB com nome VibeAli, ícones legado/adaptativo/redondo, `targetSdk` vigente e minificação ativa; nenhum segredo de backend aparece no artefato.
+- **AC-REL-02:** o checklist de publicação impede lançamento sem URLs públicas de privacidade e exclusão, Data safety coerente, classificação 18+, contato de suporte, assinatura protegida e capturas sintéticas revisadas.
 
 ## 7. Fora do MVP
 
 Swipe, match obrigatório, chamadas, live, feed público, mapa com pinos, localização em segundo plano, IA de compatibilidade, perfis de casal completos, eventos, tradução automática, anúncios, vídeo em álbum privado, concessão com expiração e visualização única.
+
+## 7.1. Qualidade de distribuição Android
+
+- A marca pública do aplicativo é **VibeAli**; nomes internos `matcher`, o pacote Android e os esquemas de deep link permanecem estáveis até uma migração coordenada com Firebase, backend e atualização instalada.
+- O launcher fornece ícone legado, redondo e adaptativo com área segura, enquanto notificações usam somente a silhueta monocromática.
+- O release é gerado como Android App Bundle, com redução e ofuscação habilitadas, sem incluir credenciais secretas no APK/AAB.
+- A interface continua utilizável em telefone retrato e paisagem, com texto ampliado, áreas de toque adequadas e descrições acessíveis nas ações que não possuem rótulo visível.
+- Publicação exige política de privacidade e página de exclusão de conta públicas, formulário Data safety revisado contra o comportamento real, classificação etária, contato de suporte e capturas sem dados reais.
 
 ## 8. Contratos iniciais
 

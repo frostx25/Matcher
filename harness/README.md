@@ -43,6 +43,7 @@ Os cenários executáveis ficam em:
 - `harness/scenarios/discovery.yml` (versão 4): preferência privada multi-seleção, filtragem autoritativa, bloqueio de leitura ampla, troca segura de cursor, privacidade, migração, grade responsiva e ações persistentes do perfil público.
 - `harness/scenarios/private-album.yml` (versão 9): limite, reserva e finalização idempotentes com retry de resposta indeterminada e TTL/reaper, tratamento defensivo de item já concluído, cleanup após cancelamento, upload real do Storage, autenticação e classificação de falhas da mídia, recuperação de prévia, acesso, concorrência, concessão, revogação individual/em lote, bloqueio, denúncia, moderação, proteção de mídia e limpeza.
 - `harness/scenarios/chat.yml` (versão 7): abertura direta, quota, lista/estado vazio, primeira mensagem, foto idempotente moderada, triagem automática cautelosa, entrega/leitura/retry, não lidas, FCM neutro com lease, silenciamento, álbum contextual sem prévia privada e denúncia específica na conversa ativa.
+- `harness/scenarios/release-readiness.yml` (versão 1): identidade do App Bundle, ícones adaptativos, minificação, ausência de segredos e bloqueios documentais antes da publicação.
 
 ## Comandos planejados
 

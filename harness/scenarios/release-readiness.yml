@@ -1,0 +1,36 @@
+version: 1
+domain: android-release-readiness
+
+scenarios:
+  - id: RELEASE-001-branded-app-bundle
+    name: App Bundle preserva identidade e configuração segura
+    given:
+      - build_variant: release
+      - public_brand: VibeAli
+      - synthetic_build_configuration: true
+    when:
+      - generate_android_app_bundle: true
+    then:
+      - application_label: VibeAli
+      - legacy_icon_present: true
+      - adaptive_icon_present: true
+      - round_icon_present: true
+      - code_minification_enabled: true
+      - resource_shrinking_enabled: true
+      - secret_backend_credentials_embedded: false
+
+  - id: RELEASE-002-store-gate
+    name: Publicação depende de segurança privacidade e suporte verificáveis
+    given:
+      - account_creation_available: true
+      - adult_connections_product: true
+    when:
+      - request_production_publication: true
+    then:
+      - privacy_policy_url_required: true
+      - account_deletion_url_required: true
+      - data_safety_review_required: true
+      - age_rating_review_required: true
+      - support_contact_required: true
+      - screenshots_use_synthetic_accounts: true
+      - upload_key_stored_outside_repository: true
