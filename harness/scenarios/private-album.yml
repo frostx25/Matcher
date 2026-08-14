@@ -1,7 +1,20 @@
-version: 9
+version: 10
 domain: private-photo-album
 
 scenarios:
+  - id: ALBUM-000-camera-or-gallery
+    name: Foto do álbum pode vir da câmera ou da galeria
+    given:
+      - owner: user-free
+      - content_policy_accepted: true
+    when:
+      - user_opens_private_album_photo_source: true
+    then:
+      - take_photo_now_visible: true
+      - choose_from_gallery_visible: true
+      - persistent_camera_permission_requested: false
+      - captured_photo_uses_private_album_pipeline: true
+
   - id: ALBUM-001-create-and-use-without-preapproval
     name: Titular cria um álbum e usa imagens imediatamente
     given:

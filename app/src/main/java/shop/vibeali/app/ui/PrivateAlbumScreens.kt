@@ -168,23 +168,9 @@ internal fun MyPrivateAlbumScreen(
     var showDeleteAlbum by rememberSaveable { mutableStateOf(false) }
     var showSharing by rememberSaveable { mutableStateOf(false) }
     var showAlbumMenu by rememberSaveable { mutableStateOf(false) }
+    var showPhotoSource by rememberSaveable { mutableStateOf(false) }
     var selectedGrantIds by remember { mutableStateOf(emptySet<String>()) }
-    val photoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val jpeg = withContext(Dispatchers.IO) {
-                        ProfilePhotoProcessor.prepareJpeg(context.contentResolver, uri)
-                    }
-                    onAddPhoto(jpeg)
-                } catch (_: Exception) {
-                    onPhotoError()
-                }
-            }
-        }
-    }
+    val photoInput = rememberPhotoInputLauncher(onAddPhoto, onPhotoError)
 
     if (showSharing) {
         PrivateAlbumSharingScreen(
@@ -340,9 +326,7 @@ internal fun MyPrivateAlbumScreen(
                     onClick = {
                         showContentPolicy = false
                         contentPolicyAccepted = false
-                        photoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
+                        showPhotoSource = true
                     },
                     enabled = contentPolicyAccepted,
                     modifier = Modifier.testTag("accept-private-album-policy"),
@@ -353,6 +337,12 @@ internal fun MyPrivateAlbumScreen(
             },
         )
     }
+
+    PhotoSourceDialog(
+        visible = showPhotoSource,
+        onDismiss = { showPhotoSource = false },
+        launcher = photoInput,
+    )
 
     if (showDeleteAlbum) {
         AlertDialog(

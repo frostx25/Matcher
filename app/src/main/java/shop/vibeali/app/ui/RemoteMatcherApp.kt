@@ -1238,6 +1238,7 @@ private fun RemoteProfileScreen(
     var privacyList by rememberSaveable { mutableStateOf<String?>(null) }
     var editPublicProfile by rememberSaveable { mutableStateOf(false) }
     var showSubscriptionPlans by rememberSaveable { mutableStateOf(false) }
+    var showPhotoSource by rememberSaveable { mutableStateOf(false) }
     var displayNameDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.displayName) }
     var bioDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.bio) }
     var intentDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.intent) }
@@ -1254,22 +1255,7 @@ private fun RemoteProfileScreen(
     var lookingForDraft by remember(genderSettings, editGender) {
         mutableStateOf(genderSettings?.lookingForGenderIds?.toSet() ?: setOf("everyone"))
     }
-    val photoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val jpeg = withContext(Dispatchers.IO) {
-                        ProfilePhotoProcessor.prepareJpeg(context.contentResolver, uri)
-                    }
-                    onPhotoSelected(jpeg)
-                } catch (_: Exception) {
-                    onPhotoError()
-                }
-            }
-        }
-    }
+    val photoInput = rememberPhotoInputLauncher(onPhotoSelected, onPhotoError)
 
     if (showSubscriptionPlans) {
         SubscriptionPlansScreen(onBack = { showSubscriptionPlans = false }, modifier = modifier)
@@ -1318,11 +1304,7 @@ private fun RemoteProfileScreen(
                 modifier = Modifier.testTag("profile-photo-status"),
             )
             OutlinedButton(
-                onClick = {
-                    photoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                },
+                onClick = { showPhotoSource = true },
                 enabled = !photoLoading,
                 modifier = Modifier.fillMaxWidth().testTag("choose-profile-photo"),
             ) {
@@ -1618,6 +1600,12 @@ private fun RemoteProfileScreen(
             confirmButton = { TextButton(onClick = { privacyList = null }) { Text("Fechar") } },
         )
     }
+
+    PhotoSourceDialog(
+        visible = showPhotoSource,
+        onDismiss = { showPhotoSource = false },
+        launcher = photoInput,
+    )
 }
 
 @Composable

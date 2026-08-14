@@ -1,7 +1,21 @@
-version: 14
+version: 15
 domain: onboarding-profile
 
 scenarios:
+  - id: PHOTO-000-camera-or-gallery
+    name: Foto pública pode vir da câmera ou da galeria
+    given:
+      - active_profile: true
+      - android_camera_app_available: true
+    when:
+      - user_opens_profile_photo_source: true
+    then:
+      - take_photo_now_visible: true
+      - choose_from_gallery_visible: true
+      - persistent_camera_permission_requested: false
+      - cancelled_capture_uploads_photo: false
+      - successful_capture_uses_profile_photo_pipeline: true
+
   - id: AUTH-001-email-otp-code
     name: Código OTP recebido por e-mail autentica dentro do Android
     given:

@@ -98,7 +98,17 @@ function base64(bytes: Uint8Array): string {
 }
 
 Deno.serve(async (request) => {
-  const empty = { processed: 0, approved: 0, blocked: 0, review: 0, failed: 0 };
+  const empty = {
+    processed: 0,
+    approved: 0,
+    blocked: 0,
+    review: 0,
+    failed: 0,
+    providerBadRequest: 0,
+    providerUnauthorized: 0,
+    providerForbidden: 0,
+    providerInvalidShape: 0,
+  };
   if (request.method !== "POST") return workerJson(empty, 405);
   if (!await hasWorkerAuthorization(request, workerSecret)) {
     return workerJson(empty, 401);
@@ -163,6 +173,9 @@ Deno.serve(async (request) => {
             console.warn("profile-photo-moderation provider request failed", {
               status: response.status,
             });
+            if (response.status === 400) counts.providerBadRequest += 1;
+            if (response.status === 401) counts.providerUnauthorized += 1;
+            if (response.status === 403) counts.providerForbidden += 1;
             errorCode = response.status >= 500 || response.status === 429
               ? "MODERATION_UNAVAILABLE"
               : "MODERATION_INVALID_RESPONSE";
@@ -178,6 +191,7 @@ Deno.serve(async (request) => {
               }
               const decision = extractOpenAIModerationDecision(parsed);
               if (!decision) {
+                counts.providerInvalidShape += 1;
                 console.warn(
                   "profile-photo-moderation provider response shape invalid",
                 );

@@ -392,27 +392,19 @@ internal fun ConversationDetailScreen(
     var reportMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var replyMessage by remember(conversation.id) { mutableStateOf<ChatMessage?>(null) }
     var showPhotoPolicy by rememberSaveable { mutableStateOf(false) }
+    var showPhotoSource by rememberSaveable { mutableStateOf(false) }
     var safetyMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
     var albumMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
     var mediaMenuExpanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
     val albumActionAvailable = receivedPrivateAlbumAvailable || myPrivateAlbumAvailable
     val identityColors = profile?.colors ?: listOf(Pink, SurfaceRaised)
-    val photoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val jpeg = withContext(Dispatchers.IO) {
-                        ProfilePhotoProcessor.prepareJpeg(context.contentResolver, uri)
-                    }
-                    onSendPhoto(jpeg)
-                } catch (_: Exception) {
-                    // The owning screen keeps the existing privacy-safe generic error treatment.
-                }
-            }
-        }
-    }
+    val photoInput = rememberPhotoInputLauncher(
+        onPhotoSelected = { bytes ->
+            onSendPhoto(bytes)
+            Unit
+        },
+        onPhotoError = {},
+    )
 
     Column(
         modifier = Modifier
@@ -875,7 +867,7 @@ internal fun ConversationDetailScreen(
                 Button(
                     onClick = {
                         showPhotoPolicy = false
-                        photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        showPhotoSource = true
                     },
                     modifier = Modifier.testTag("confirm-chat-photo-picker"),
                 ) { Text("Escolher foto") }
@@ -883,6 +875,11 @@ internal fun ConversationDetailScreen(
             dismissButton = { TextButton(onClick = { showPhotoPolicy = false }) { Text("Cancelar") } },
         )
     }
+    PhotoSourceDialog(
+        visible = showPhotoSource,
+        onDismiss = { showPhotoSource = false },
+        launcher = photoInput,
+    )
     if (showReportDialog) {
         ReportDialog(
             profileName = displayName,

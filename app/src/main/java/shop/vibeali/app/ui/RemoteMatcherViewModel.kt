@@ -62,6 +62,9 @@ internal const val EMAIL_OTP_LENGTH = 6
 internal const val EMAIL_OTP_RESEND_COOLDOWN_SECONDS = 60
 internal const val EMAIL_OTP_OPERATION_TIMEOUT_MILLIS = 15_000L
 internal const val RESUME_REFRESH_MIN_INTERVAL_NANOS = 15_000_000_000L
+private const val PROFILE_PHOTO_POLL_INTERVAL_MILLIS = 5_000L
+private const val PROFILE_PHOTO_POLL_MAX_ATTEMPTS = 60
+private val PROFILE_PHOTO_PROCESSING_STATUSES = setOf("pending", "review")
 
 enum class SignedInStage {
     Resolving,
@@ -176,6 +179,7 @@ class RemoteMatcherViewModel(
     private var otpCooldownJob: Job? = null
     private var ageVerificationJob: Job? = null
     private var profilePhotoJob: Job? = null
+    private var profilePhotoModerationJob: Job? = null
     private var discoveryPaginationJob: Job? = null
     private var privateAlbumJob: Job? = null
     private var privateAlbumSummaryJob: Job? = null
@@ -214,6 +218,8 @@ class RemoteMatcherViewModel(
                 ageVerificationJob = null
                 profilePhotoJob?.cancel()
                 profilePhotoJob = null
+                profilePhotoModerationJob?.cancel()
+                profilePhotoModerationJob = null
                 ageVerificationRefreshPending = false
                 mutableState.update { current ->
                     current.copy(
@@ -567,6 +573,7 @@ class RemoteMatcherViewModel(
                 mutableState.update { current ->
                     if (isSessionWorkCurrent(token)) current.copy(profile = profile) else current
                 }
+                startProfilePhotoModerationPolling(token)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -1224,6 +1231,8 @@ class RemoteMatcherViewModel(
         discoveryPaginationJob = null
         profilePhotoJob?.cancel()
         profilePhotoJob = null
+        profilePhotoModerationJob?.cancel()
+        profilePhotoModerationJob = null
         invalidatePrivateAlbumWork()
         wipePrivateAlbumBytes(mutableState.value.privateAlbum.visibleBytes)
         wipePendingChatPhotos()
@@ -1439,6 +1448,7 @@ class RemoteMatcherViewModel(
                 ) false else it.ageVerificationConsentGranted,
             )
         }
+        startProfilePhotoModerationPolling(token)
         lastFullRefreshNanos = System.nanoTime()
         runCatching { pushGateway.register() }
         startPrivateAlbumSummaryLoad()
@@ -1449,6 +1459,34 @@ class RemoteMatcherViewModel(
                 throw error
             } catch (error: Exception) {
                 if (isSessionWorkCurrent(token)) setError(error.toUserMessage())
+            }
+        }
+    }
+
+    private fun startProfilePhotoModerationPolling(token: SessionWorkToken) {
+        profilePhotoModerationJob?.cancel()
+        if (mutableState.value.profile?.avatarModerationStatus !in PROFILE_PHOTO_PROCESSING_STATUSES) {
+            profilePhotoModerationJob = null
+            return
+        }
+        profilePhotoModerationJob = viewModelScope.launch {
+            try {
+                repeat(PROFILE_PHOTO_POLL_MAX_ATTEMPTS) {
+                    delay(PROFILE_PHOTO_POLL_INTERVAL_MILLIS)
+                    ensureSessionWorkIsCurrent(token)
+                    val profile = profileGateway.currentProfile() ?: return@launch
+                    ensureSessionWorkIsCurrent(token)
+                    mutableState.update { current ->
+                        if (isSessionWorkCurrent(token)) current.copy(profile = profile) else current
+                    }
+                    if (profile.avatarModerationStatus !in PROFILE_PHOTO_PROCESSING_STATUSES) {
+                        return@launch
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // A retomada da tela e uma nova sessão ainda fazem a atualização de segurança.
             }
         }
     }

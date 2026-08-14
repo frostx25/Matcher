@@ -1,7 +1,20 @@
-version: 7
+version: 8
 domain: direct-chat
 
 scenarios:
+  - id: CHAT-000-camera-or-gallery
+    name: Foto da conversa pode vir da câmera ou da galeria
+    given:
+      - conversation: active
+      - photo_policy_confirmed: true
+    when:
+      - user_opens_chat_photo_source: true
+    then:
+      - take_photo_now_visible: true
+      - choose_from_gallery_visible: true
+      - persistent_camera_permission_requested: false
+      - captured_photo_uses_idempotent_chat_pipeline: true
+
   - id: CHAT-001-free-quota
     name: Free abre conversa ativa imediatamente
     given:
