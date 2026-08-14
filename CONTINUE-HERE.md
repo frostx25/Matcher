@@ -230,7 +230,7 @@ Este arquivo não contém segredos nem dados pessoais.
 - Nome público oficial alterado de Matcher para `VibeAli`; domínio oficial: `vibeali.shop`.
 - Nome, ícone Android, ícone de notificação, textos do aplicativo, retorno de verificação etária, notificações push e painel de moderação foram atualizados.
 - Guia e fonte visual: `docs/brand/BRAND.md` e `docs/brand/vibeali-logo-source.png`.
-- Identificadores técnicos (`com.matcher.app`, `matcher://` e canal `matcher_messages`) foram mantidos para preservar instalações, Firebase e integrações existentes.
+- Identificadores técnicos foram alinhados à marca antes da publicação: pacote `shop.vibeali.app`, deep link `vibeali://` e canal `vibeali_messages`.
 - Migration `20260811170000_vibeali_notification_brand.sql` aplicada no `Matcher Dev` e funções `notification-worker` e `age-verification-return` republicadas.
 - Painel publicado em produção e associado a `https://matcher-moderation-panel.vercel.app/`.
 - APK compilado, reinstalado e aberto no emulador `emulator-5554`; a tela de login mostra `VibeAli`.

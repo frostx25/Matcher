@@ -14,6 +14,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Matcher"
+rootProject.name = "VibeAli"
 include(":app")
 

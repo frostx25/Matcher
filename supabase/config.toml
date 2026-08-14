@@ -3,7 +3,7 @@ project_id = "matcher"
 [auth]
 enabled = true
 site_url = "https://vibeali.shop"
-additional_redirect_urls = ["matcher://auth-callback", "https://vibeali.shop/auth/callback"]
+additional_redirect_urls = ["vibeali://auth-callback", "https://vibeali.shop/auth/callback"]
 enable_signup = true
 
 [auth.email]

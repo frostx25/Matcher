@@ -151,7 +151,7 @@ O onboarding e o uso da conta não dependem deste gate. Antes de disponibilizar 
 
 Também deve existir teste explícito de precedência: uma aprovação atrasada pode registrar o resultado técnico permitido, mas não reativa nem torna público um perfil suspenso, excluído ou restrito pela moderação.
 
-O retorno `matcher://age-verification/...` serve apenas para reabrir o app e solicitar o status ao backend. Ele não transporta nem comprova uma decisão.
+O retorno `vibeali://age-verification/...` serve apenas para reabrir o app e solicitar o status ao backend. Ele não transporta nem comprova uma decisão.
 
 ## 8. Referências do provedor
 

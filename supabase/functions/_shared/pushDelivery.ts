@@ -41,7 +41,7 @@ export function fcmEnvelope(item: NotificationLease): Record<string, unknown> {
       data: { conversation_id: item.payload.conversation_id },
       android: {
         priority: "high",
-        notification: { channel_id: "matcher_messages", sound: "default" },
+        notification: { channel_id: "vibeali_messages", sound: "default" },
       },
     },
   };

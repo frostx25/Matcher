@@ -20,12 +20,12 @@ fun quotedBuildConfig(value: String): String =
     "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
-    namespace = "com.matcher.app"
+    namespace = "shop.vibeali.app"
     compileSdk = 37
     compileSdkMinor = 1
 
     defaultConfig {
-        applicationId = "com.matcher.app"
+        applicationId = "shop.vibeali.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

@@ -15,7 +15,7 @@ o endpoint gratuito `/v1/moderations` com `omni-moderation-latest`.
   permanente é desativada.
 - O payload contém apenas `Matcher`, `Nova mensagem` e o UUID opaco da conversa.
   Texto, remetente, foto, URL e caminho de Storage nunca entram na notificação.
-- O canal Android `matcher_messages` usa alta prioridade, som padrão e ícone pequeno
+- O canal Android `vibeali_messages` usa alta prioridade, som padrão e ícone pequeno
   monocromático. O pop-up detalhado foi validado no Samsung conectado.
 
 ## Limite da moderação automática

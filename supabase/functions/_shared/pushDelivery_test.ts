@@ -33,7 +33,7 @@ Deno.test("FCM envelope never contains private message or media data", () => {
   assert(text.includes("Nova mensagem"), "neutral body");
   assert(text.includes("conversation_id"), "opaque route");
   assert(
-    (envelope.message as Record<string, any>).android.notification.channel_id === "matcher_messages",
+    (envelope.message as Record<string, any>).android.notification.channel_id === "vibeali_messages",
     "heads-up channel",
   );
   for (const forbidden of ["message_body", "media_path", "object_path", "sender_name"]) {

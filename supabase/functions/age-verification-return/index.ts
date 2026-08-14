@@ -1,5 +1,5 @@
-const completeDeepLink = "matcher://age-verification/complete";
-const cancelledDeepLink = "matcher://age-verification/cancelled";
+const completeDeepLink = "vibeali://age-verification/complete";
+const cancelledDeepLink = "vibeali://age-verification/cancelled";
 
 const responseHeaders = {
   "content-type": "text/html; charset=utf-8",

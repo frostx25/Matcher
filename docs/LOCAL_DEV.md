@@ -125,7 +125,7 @@ $supabase="..\tools\supabase-cli\supabase.exe"
 & $supabase functions deploy age-verification-session
 ```
 
-A migration histórica `20260731170000_age_assurance_gate.sql` representa o contrato antigo, no qual o Didit bloqueava o acesso. Ela continua na cadeia imutável e deve ser aplicada em ordem; `20260731190000_soft_age_gate_profile_photos.sql` a substitui imediatamente, recupera contas elegíveis e torna o Didit opcional. Nunca aplique apenas a migration antiga em um ambiente novo. O retorno `matcher://age-verification/...` apenas reabre o Android e força uma consulta; ele nunca comprova o selo.
+A migration histórica `20260731170000_age_assurance_gate.sql` representa o contrato antigo, no qual o Didit bloqueava o acesso. Ela continua na cadeia imutável e deve ser aplicada em ordem; `20260731190000_soft_age_gate_profile_photos.sql` a substitui imediatamente, recupera contas elegíveis e torna o Didit opcional. Nunca aplique apenas a migration antiga em um ambiente novo. O retorno `vibeali://age-verification/...` apenas reabre o Android e força uma consulta; ele nunca comprova o selo.
 
 Antes de executar esses comandos, confirme que as Edge Functions consomem as cinco variáveis `DIDIT_*`, validam workflow/versão, `session_kind = user`, pseudônimo/referência de tentativa e liveness `PASSIVE`, bloqueiam somente outra sessão Didit durante `In Review` e não persistem nem registram a resposta bruta. Falha ou revisão não pode desativar a conta, e suspensão/moderação devem prevalecer sobre o selo. Qualquer divergência bloqueia o deploy até a implementação ser alinhada ao [contrato do selo opcional](age-assurance.md).
 
