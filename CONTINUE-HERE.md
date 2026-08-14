@@ -211,10 +211,10 @@ Este arquivo não contém segredos nem dados pessoais.
 
 - Criado `VibeAli Prod` (`jtbeuxouxkckmzgkpbzq`) em São Paulo, separado do `Matcher Dev`.
 - Todas as migrations foram aplicadas sem seed; Auth, buckets e nove Edge Functions foram configurados.
-- Jobs internos permanecem desligados para não chamar o Dev nem executar sem Firebase/OpenAI de produção.
+- Jobs internos de notificação e moderação estão ativos em Prod, apontando exclusivamente para `jtbeuxouxkckmzgkpbzq`; smoke vazio retornou sucesso nos dois workers.
 - Build Android aceita `-PbackendEnv=prod` e usa `local.prod.properties`, ignorado pelo Git; release unsigned e lint Prod foram gerados com sucesso.
 - O repositório foi religado ao `Matcher Dev` após a configuração, reduzindo risco de alteração acidental em Prod.
-- Próxima etapa exige credenciais próprias: Resend/SMTP, Firebase, Didit e OpenAI. Depois disso, configurar os workers e executar smoke apenas com contas sintéticas.
+- Integrações próprias de produção configuradas: Resend/SMTP com OTP de 6 dígitos, Firebase/FCM, Didit live com webhook e OpenAI restrita somente a `/v1/moderations`. Nenhum segredo foi versionado.
 
 ## Checkpoint de produção, planos e legal — 14/08/2026
 
