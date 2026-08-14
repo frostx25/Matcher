@@ -15,7 +15,7 @@ Permitir que pessoas adultas descubram perfis próximos e iniciem conversas dire
 - **Destinatário:** recebe a primeira mensagem em uma conversa já ativa e pode responder, bloquear ou denunciar.
 - **Destinatário de álbum:** recebe do titular uma autorização individual e revogável para abrir um álbum privado, podendo denunciar seu conteúdo.
 - **Moderador:** revisa denúncias, conteúdo e contas sinalizadas.
-- **Serviço de entitlement:** confirma o plano Free, Extra ou Pro no servidor.
+- **Serviço de entitlement:** confirma o plano Free, Extra, Pro ou Ilimitado no servidor.
 
 - **Didit:** oferece, depois do onboarding e por iniciativa da pessoa na aba Perfil, um workflow opcional de documento brasileiro, prova de vida passiva e correspondência facial 1:1; o backend usa somente a decisão mínima necessária para conceder o selo 18+ verificado.
 
@@ -128,9 +128,12 @@ No protótipo local e remoto de desenvolvimento, o onboarding usa somente o ano 
 
 ### 3.5 Quota e planos
 
-- **Free:** 5 novas aberturas por janela móvel de 24 horas.
-- **Extra:** quota maior e recursos adicionais definidos após beta.
-- **Pro:** quota muito maior ou ilimitada, sempre sujeita a limites anti-spam e moderação.
+- **Free:** 5 novas aberturas por janela móvel de 24 horas, 20 favoritos e um álbum privado com até 10 fotos.
+- **Extra:** 20 novas aberturas, filtros avançados, 200 favoritos, 50 perfis vistos recentemente e ocultação de atividade.
+- **Pro:** 50 novas aberturas, favoritos ilimitados, 200 perfis recentes, quem favoritou, modo incógnito, ocultação de atividade/leitura, histórico de visitas por 7 dias e um destaque semanal.
+- **Ilimitado:** nenhuma quota comercial visível de novas aberturas, favoritos ou recentes; tudo do Pro, histórico de visitas por 30 dias, até três álbuns/30 fotos, um destaque diário e suporte prioritário.
+- O Ilimitado mantém limites técnicos e comportamentais anti-spam. “Ilimitado” não autoriza automação, assédio ou volume abusivo.
+- Preço, moeda, renovação, período e promoções vêm do Google Play; os valores no app só podem ser exibidos a partir de `ProductDetails` quando a cobrança estiver ativa.
 - A quota é calculada no servidor e decrementada atomicamente.
 - O cliente exibe quota restante, próxima renovação e motivo de bloqueio.
 - Assinaturas são verificadas pelo backend; o cliente não pode se conceder entitlement.
@@ -177,7 +180,7 @@ A primeira mensagem torna a conversa ativa sem aceite prévio. O destinatário p
 
 ### BR-CHAT-04 — plano pago não remove segurança
 
-Extra e Pro aumentam acesso pago, mas não removem bloqueio, denúncia, rate limit, moderação ou suspensão.
+Extra, Pro e Ilimitado aumentam acesso pago, mas não removem bloqueio, denúncia, rate limit, moderação ou suspensão. Recursos de segurança, resposta em conversas existentes, exclusão de conta e verificação 18+ não dependem de assinatura.
 
 ### BR-CHAT-05 — foto privada e idempotente
 
@@ -336,10 +339,24 @@ Concessões vigentes aparecem em uma tela própria de compartilhamento. O titula
 - **AC-MOD-05:** histórico e indicadores omitem bytes, URLs, caminhos de Storage, corpo de mensagem e detalhes livres; filtros e paginação possuem limites definidos no servidor.
 - **AC-MOD-06:** suspender ou banir interrompe descoberta, conversa e acesso a álbuns. Reativar é uma ação administrativa explícita e auditada; desbloqueio automático por relógio não é decidido pelo cliente.
 - **AC-MOD-07:** somente administrador ativo altera a allowlist da equipe e não pode remover ou rebaixar o último administrador ativo.
+- **AC-MOD-08:** cada caso recebe prioridade e prazo operacional no servidor; novos casos são inicializados automaticamente e casos vencidos são identificáveis sem cálculo autoritativo no cliente.
+- **AC-MOD-09:** moderadores filtram a fila por estado, risco, evidência e prioridade, e podem assumir ou liberar um caso sem apagar seu histórico.
+- **AC-MOD-10:** notas internas são privadas da equipe, possuem autor e data e não são incluídas em respostas públicas nem em exportações comuns.
+- **AC-MOD-11:** recursos pendentes exigem decisão de uma segunda pessoa; quem aplicou a sanção original não pode julgar o próprio recurso.
+- **AC-MOD-12:** suspensões temporárias possuem duração explícita e auditada; reativação antecipada continua sendo ação administrativa explícita.
+- **AC-MOD-13:** modelos de resposta são versionados no servidor e podem ser vinculados ao caso sem expor evidências privadas.
+- **AC-MOD-14:** indicadores operacionais mostram volume aberto, casos fora do SLA, tempo mediano de resolução e recursos, sem conteúdo sensível.
+- **AC-MOD-15:** exportações de auditoria exigem administrador, limitam a janela a 90 dias, omitem conteúdo sensível e registram o próprio ato de exportar.
 - **AC-SAFE-01:** bloquear remove o perfil/conversa da descoberta e impede novos contatos entre as contas.
 - **AC-SAFE-02:** denunciar cria caso de moderação com motivo, evidência e estado auditável.
 - **AC-SAFE-03:** suspender qualquer participante ou titular encerra acesso ao álbum privado sem depender do estado no cliente.
 - **AC-BILL-01:** entitlement pago só é ativado após validação de compra no backend.
+- **AC-BILL-02:** sem Google Play Billing configurado, a tela mostra o catálogo como “Em breve”, não inicia pagamento e não altera entitlement.
+- **AC-BILL-03:** downgrade, cancelamento, expiração, reembolso e período de tolerância são decididos pelo backend após validar o estado da compra no Google Play.
+- **AC-BILL-04:** o cliente não pode gravar plano, quota nem feature flags diretamente.
+- **AC-BILL-05:** o catálogo e o entitlement efetivo são lidos do servidor; a resposta inclui apenas recursos normalizados e nunca aceita um plano informado pelo cliente.
+- **AC-BILL-06:** favoritar aplica no servidor a cota do entitlement vigente; remover favorito continua permitido mesmo com a cota cheia e `null` representa ausência de limite comercial.
+- **AC-BILL-07:** recursos de segurança, resposta a conversas existentes, exclusão da conta e revogação de álbum não podem ser bloqueados por plano ou cobrança.
 - **AC-DATA-01:** o usuário encontra a exclusão dentro do app; ao confirmar, a conta deixa de autenticar/agir imediatamente, sai da descoberta, fecha conversas e revoga acessos, enquanto a limpeza física segue uma fila privada idempotente e retenções justificadas.
 - **AC-REL-01:** a variante release gera um AAB com nome VibeAli, ícones legado/adaptativo/redondo, `targetSdk` vigente e minificação ativa; nenhum segredo de backend aparece no artefato.
 - **AC-REL-02:** o checklist de publicação impede lançamento sem URLs públicas de privacidade e exclusão, Data safety coerente, classificação 18+, contato de suporte, assinatura protegida e capturas sintéticas revisadas.

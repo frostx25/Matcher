@@ -119,8 +119,12 @@ Metas iniciais, medidas em aparelhos Android intermediários e acompanhadas por 
 ### Monetização inicial
 
 - **Free:** grade, perfil, filtros básicos e 5 novas conversas iniciadas por 24 horas.
-- **Extra:** limite maior de novas conversas e filtros/recursos adicionais a definir no beta.
-- **Pro:** limite muito maior ou ilimitado de novas conversas, sujeito aos limites de segurança, além de recursos premium como privacidade avançada e destaque controlado.
+- **Extra:** 20 novas conversas por 24 horas, filtros avançados, até 200 favoritos, 50 perfis vistos recentemente e opção de ocultar atividade recente.
+- **Pro:** 50 novas conversas por 24 horas, favoritos ilimitados, até 200 perfis vistos recentemente, ver quem favoritou, modo incógnito, ocultar atividade e confirmação de leitura, além de um destaque por semana.
+- **Ilimitado:** sem limite comercial visível para novas conversas, históricos e favoritos; inclui tudo do Pro, até três álbuns privados com 30 fotos no total, quem viu o perfil nos últimos 30 dias, um destaque por dia e suporte prioritário.
+- “Sem limite comercial” nunca desliga os controles anti-spam, antifraude ou de segurança por minuto, destinatário, conta e dispositivo.
+- Bloqueio, denúncia, apelação, exclusão de conta, verificação 18+, resposta em conversas existentes e controles básicos de álbum permanecem gratuitos.
+- Preços de referência para validação: Extra R$ 14,90/mês, Pro R$ 29,90/mês e Ilimitado R$ 49,90/mês. O preço autoritativo será sempre o exibido pelo Google Play.
 - Os planos devem vender valor recorrente real, com preço, renovação automática e cancelamento claramente informados.
 - No Android, assinaturas e recursos digitais serão integrados ao Google Play Billing, salvo eventual programa de cobrança alternativa aplicável ao país.
 

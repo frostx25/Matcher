@@ -44,7 +44,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +61,7 @@ import kotlinx.coroutines.withTimeout
 internal const val EMAIL_OTP_LENGTH = 6
 internal const val EMAIL_OTP_RESEND_COOLDOWN_SECONDS = 60
 internal const val EMAIL_OTP_OPERATION_TIMEOUT_MILLIS = 15_000L
+internal const val RESUME_REFRESH_MIN_INTERVAL_NANOS = 15_000_000_000L
 
 enum class SignedInStage {
     Resolving,
@@ -187,6 +190,7 @@ class RemoteMatcherViewModel(
     private var authOperationGeneration = 0L
     private val otpCooldownSecondsByEmail = mutableMapOf<String, Int>()
     private val pendingChatPhotoBytes = mutableMapOf<String, ByteArray>()
+    private var lastFullRefreshNanos = 0L
 
     init {
         viewModelScope.launch {
@@ -1305,6 +1309,8 @@ class RemoteMatcherViewModel(
 
     fun refreshOnResume() {
         if (!requireActiveAccount()) return
+        val elapsedNanos = System.nanoTime() - lastFullRefreshNanos
+        if (elapsedNanos in 0 until RESUME_REFRESH_MIN_INTERVAL_NANOS) return
         launchRemote { token -> refreshSignedInData(token) }
     }
 
@@ -1399,15 +1405,20 @@ class RemoteMatcherViewModel(
         val profile = profileGateway.currentProfile()
             ?: error("ACTIVE_PROFILE_MISSING")
         ensureSessionWorkIsCurrent(token)
-        val genderSettings = profileGateway.getGenderSettings()
-        ensureSessionWorkIsCurrent(token)
-        val discovery = profileGateway.discoveryPage()
-        ensureSessionWorkIsCurrent(token)
-        val favoriteProfiles = profileGateway.favoriteProfiles()
-        ensureSessionWorkIsCurrent(token)
-        val privacyCenter = profileGateway.privacyCenter()
-        ensureSessionWorkIsCurrent(token)
-        val chat = chatGateway.snapshot()
+        val loaded = coroutineScope {
+            val genderSettings = async { profileGateway.getGenderSettings() }
+            val discovery = async { profileGateway.discoveryPage() }
+            val favoriteProfiles = async { profileGateway.favoriteProfiles() }
+            val privacyCenter = async { profileGateway.privacyCenter() }
+            val chat = async { chatGateway.snapshot() }
+            ActiveAccountPayload(
+                genderSettings = genderSettings.await(),
+                discovery = discovery.await(),
+                favoriteProfiles = favoriteProfiles.await(),
+                privacyCenter = privacyCenter.await(),
+                chat = chat.await(),
+            )
+        }
         ensureSessionWorkIsCurrent(token)
         realtimeJob?.cancel()
         realtimeJob = null
@@ -1415,11 +1426,11 @@ class RemoteMatcherViewModel(
             it.copy(
                 signedInStage = SignedInStage.Active,
                 profile = profile,
-                genderSettings = genderSettings,
-                discovery = discovery,
-                favoriteProfiles = favoriteProfiles,
-                privacyCenter = privacyCenter,
-                chat = chat,
+                genderSettings = loaded.genderSettings,
+                discovery = loaded.discovery,
+                favoriteProfiles = loaded.favoriteProfiles,
+                privacyCenter = loaded.privacyCenter,
+                chat = loaded.chat,
                 ageVerificationOpen = if (
                     it.ageVerificationStatus == AgeVerificationStatus.Verified
                 ) false else it.ageVerificationOpen,
@@ -1428,6 +1439,7 @@ class RemoteMatcherViewModel(
                 ) false else it.ageVerificationConsentGranted,
             )
         }
+        lastFullRefreshNanos = System.nanoTime()
         runCatching { pushGateway.register() }
         startPrivateAlbumSummaryLoad()
         realtimeJob = viewModelScope.launch {
@@ -1440,6 +1452,14 @@ class RemoteMatcherViewModel(
             }
         }
     }
+
+    private data class ActiveAccountPayload(
+        val genderSettings: GenderSettings,
+        val discovery: DiscoveryPage,
+        val favoriteProfiles: List<RemoteProfile>,
+        val privacyCenter: PrivacyCenter,
+        val chat: ChatSnapshot,
+    )
 
     private suspend fun reloadChat(token: SessionWorkToken = currentSessionWorkToken()) {
         if (mutableState.value.signedInStage != SignedInStage.Active) return

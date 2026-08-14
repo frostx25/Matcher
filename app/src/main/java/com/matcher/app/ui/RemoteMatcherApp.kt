@@ -727,7 +727,7 @@ private fun RemoteHome(
                     onExplore = { selectedTab = 0 },
                     modifier = Modifier.padding(padding),
                 )
-                else -> RemoteProfileScreen(
+                2 -> RemoteProfileScreen(
                     profile = profile,
                     genderSettings = state.genderSettings,
                     verificationStatus = state.ageVerificationStatus,
@@ -741,11 +741,7 @@ private fun RemoteHome(
                     privateAlbumItemCount = state.privateAlbum.myAlbum?.itemCount ?: 0,
                     privateAlbumGrantCount = state.privateAlbum.myGrants.size,
                     sharedPrivateAlbums = state.privateAlbum.sharedWithMe.map { shared ->
-                        SharedPrivateAlbumUi(
-                            ownerId = shared.ownerId,
-                            ownerName = shared.ownerDisplayName,
-                            itemCount = shared.itemCount,
-                        )
+                        SharedPrivateAlbumUi(shared.ownerId, shared.ownerDisplayName, shared.itemCount)
                     },
                     onOpenSharedPrivateAlbum = { shared ->
                         viewModel.openReceivedPrivateAlbum(shared.ownerId, shared.ownerName)
@@ -761,6 +757,11 @@ private fun RemoteHome(
                     onActivityVisibilityChange = viewModel::setActivityVisibility,
                     onUnhideProfile = viewModel::unhideProfile,
                     onUnblockProfile = viewModel::unblockUser,
+                    modifier = Modifier.padding(padding),
+                )
+                else -> SubscriptionPlansScreen(
+                    onBack = { selectedTab = 2 },
+                    showBack = false,
                     modifier = Modifier.padding(padding),
                 )
             }
@@ -1223,6 +1224,7 @@ private fun RemoteProfileScreen(
     var showDeleteAccount by rememberSaveable { mutableStateOf(false) }
     var privacyList by rememberSaveable { mutableStateOf<String?>(null) }
     var editPublicProfile by rememberSaveable { mutableStateOf(false) }
+    var showSubscriptionPlans by rememberSaveable { mutableStateOf(false) }
     var displayNameDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.displayName) }
     var bioDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.bio) }
     var intentDraft by remember(profile, editPublicProfile) { mutableStateOf(profile.intent) }
@@ -1256,6 +1258,11 @@ private fun RemoteProfileScreen(
         }
     }
 
+    if (showSubscriptionPlans) {
+        SubscriptionPlansScreen(onBack = { showSubscriptionPlans = false }, modifier = modifier)
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -1266,6 +1273,13 @@ private fun RemoteProfileScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Seu perfil", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Black)
+        Button(
+            onClick = { showSubscriptionPlans = true },
+            modifier = Modifier.fillMaxWidth().testTag("open-subscription-plans"),
+            colors = ButtonDefaults.buttonColors(containerColor = Pink, contentColor = Black),
+        ) {
+            Text("Conhecer planos", fontWeight = FontWeight.Bold)
+        }
         Column(
             Modifier
                 .fillMaxWidth()
@@ -1509,6 +1523,25 @@ private fun RemoteProfileScreen(
             onClick = onExportAccount,
             modifier = Modifier.fillMaxWidth().testTag("export-account-data"),
         ) { Text("Baixar meus dados") }
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Surface).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Informações e ajuda", fontWeight = FontWeight.Bold)
+            Text("Consulte as regras atuais no site oficial.", color = TextSecondary, fontSize = 12.sp)
+            OutlinedButton(
+                onClick = { CustomTabsIntent.Builder().build().launchUrl(context, "https://vibeali.shop/privacidade/".toUri()) },
+                modifier = Modifier.fillMaxWidth().testTag("open-privacy-policy"),
+            ) { Text("Política de Privacidade") }
+            OutlinedButton(
+                onClick = { CustomTabsIntent.Builder().build().launchUrl(context, "https://vibeali.shop/termos/".toUri()) },
+                modifier = Modifier.fillMaxWidth().testTag("open-terms"),
+            ) { Text("Termos de Uso") }
+            OutlinedButton(
+                onClick = { CustomTabsIntent.Builder().build().launchUrl(context, "https://vibeali.shop/conteudo/".toUri()) },
+                modifier = Modifier.fillMaxWidth().testTag("open-content-policy"),
+            ) { Text("Regras da Comunidade") }
+        }
         TextButton(
             onClick = { showDeleteAccount = true },
             modifier = Modifier.fillMaxWidth().testTag("delete-account"),

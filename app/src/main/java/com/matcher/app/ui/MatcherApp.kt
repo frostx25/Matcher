@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -281,7 +282,13 @@ fun MatcherApp(
                     modifier = Modifier.padding(padding),
                 )
 
-                else -> ProfileScreen(profile = savedProfile, modifier = Modifier.padding(padding))
+                2 -> ProfileScreen(profile = savedProfile, modifier = Modifier.padding(padding))
+
+                else -> SubscriptionPlansScreen(
+                    onBack = { selectedTab = 2 },
+                    showBack = false,
+                    modifier = Modifier.padding(padding),
+                )
             }
         }
     }
@@ -953,6 +960,13 @@ internal fun BottomNavigationBar(selectedTab: Int, onTabSelected: (Int) -> Unit)
             icon = { Icon(Icons.Outlined.Person, "Perfil") },
             label = { Text("Perfil") },
             modifier = Modifier.testTag("tab-profile"),
+        )
+        NavigationBarItem(
+            selected = selectedTab == 3,
+            onClick = { onTabSelected(3) },
+            icon = { Icon(Icons.Outlined.StarBorder, "Planos") },
+            label = { Text("Planos") },
+            modifier = Modifier.testTag("tab-plans"),
         )
     }
 }

@@ -2,6 +2,15 @@
 
 Atualizado em: 2026-08-11
 
+## Checkpoint de 13/08/2026 — monetização, performance e operação
+
+- Catálogo local Free/Extra/Pro/Ilimitado, tela de planos e aba fixa no extremo direito da navegação; compras permanecem “Em breve” até existir Play Console e validação backend.
+- Carregamento autenticado paraleliza identidade, descoberta, favoritos, privacidade e chat; retorno em menos de 15 segundos evita recarga completa duplicada.
+- Samsung: debug mediu 3,5–5,5 s; variante benchmark minificada abriu a Activity em aproximadamente 495 ms.
+- VM continua sem PostgreSQL. Caddy ganhou healthcheck e timer systemd de cinco minutos; site e painel respondem 200.
+- Rotina de backup lógico criptografado foi instalada sem credenciais e permanece desativada até existir configuração segura. Ela não cobre bytes do Storage.
+- Workflows de CI verificam Android, painel e Supabase; deploy da VM é manual e depende de secrets protegidos no GitHub.
+
 ## Checkpoint de 11/08/2026 — fechamento das prioridades 1 a 6
 
 - Denúncia superior da conversa agora é identificada corretamente como denúncia da conversa; denúncias específicas de mensagem/foto continuam vinculadas ao conteúdo autorizado.
@@ -197,6 +206,15 @@ A pessoa entrou novamente por e-mail/OTP. O APK foi reinstalado com `-r`, preser
 - `docs/PUSH-AND-CHAT-MODERATION.md` — arquitetura, segurança e ativação dos dois workers.
 
 Este arquivo não contém segredos nem dados pessoais.
+
+## Checkpoint de produção, planos e legal — 14/08/2026
+
+- Catálogo Free/Extra/Pro/Ilimitado aplicado no `Matcher Dev`; `get_my_subscription_plan()` fornece snapshot somente leitura e a cota de favoritos é validada no servidor.
+- Sem Google Play configurado, compra permanece desativada e nenhum cliente consegue conceder entitlement.
+- Android expõe no Perfil links oficiais para Privacidade, Termos e Regras da Comunidade; APK, testes unitários e lint passaram, e 44/44 testes instrumentados foram aprovados no Samsung.
+- Documentos públicos foram atualizados com o contato `leeocali@hotmail.com` e publicados em `vibeali.shop`.
+- Monitoramento systemd da VM está ativo a cada cinco minutos para site e painel. Backup lógico permanece deliberadamente sem credenciais e não deve ser ativado até existir um projeto `VibeAli Prod` separado e destino externo criptografado.
+- Samsung SM-A315G: cold start debug autenticado de 5.619 ms; após estabilização, 7,25% de frames lentos. Build minificado continua sendo a referência para publicação.
 
 ## Checkpoint de identidade VibeAli — 11/08/2026
 

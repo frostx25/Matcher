@@ -1,0 +1,10 @@
+begin;
+select plan(6);
+select has_function('public','get_my_subscription_plan',array[]::text[],'entitlement snapshot RPC exists');
+select function_returns('public','get_my_subscription_plan',array[]::text[],'jsonb','snapshot is normalized JSON');
+select ok(has_function_privilege('authenticated','public.get_my_subscription_plan()','EXECUTE'),'authenticated can read own plan');
+select ok(not has_function_privilege('anon','public.get_my_subscription_plan()','EXECUTE'),'anonymous cannot read a plan');
+select ok(not has_function_privilege('authenticated','private.current_plan_catalog(uuid)','EXECUTE'),'client cannot call internal catalog resolver');
+select throws_ok('select public.get_my_subscription_plan()','P0001','AUTH_REQUIRED','snapshot requires authentication');
+select * from finish();
+rollback;

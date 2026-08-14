@@ -1,0 +1,20 @@
+.workflow-card { margin: 18px 0; padding: 22px; border: 1px solid #543849; border-radius: 18px; background: linear-gradient(135deg, #1b1117, #110e12); }
+.workflow-card header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.workflow-card header > div { display: grid; gap: 4px; }
+.workflow-card .sla { font-size: 18px; }
+.workflow-card .sla.overdue { color: #ff7770; }
+.workflow-actions { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; gap: 8px; margin-bottom: 16px; }
+.workflow-card select, .workflow-card textarea { width: 100%; padding: 11px; border: 1px solid #493c49; border-radius: 10px; background: #0f0c10; color: #fff; }
+.workflow-card textarea { min-height: 92px; resize: vertical; margin: 6px 0 8px; }
+.workflow-card > label { display: block; margin-top: 13px; color: var(--muted); font-size: 12px; }
+.workflow-card > button { margin: 8px 8px 0 0; }
+.internal-notes { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.internal-notes article { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.internal-notes p { margin: 0 0 5px; }
+.internal-notes small, .appeals-list small { color: var(--muted); }
+.appeals-list { display: grid; gap: 10px; }
+.appeals-list article { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); }
+.appeals-list article > div:first-child { display: grid; gap: 5px; }
+.appeals-list button { margin-left: 7px; }
+.signal-board button { padding: 10px 14px; border-radius: 10px; }
+@media (max-width: 700px) { .workflow-actions { grid-template-columns: 1fr; } .appeals-list article { align-items: flex-start; flex-direction: column; } }

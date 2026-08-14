@@ -1,0 +1,27 @@
+name: moderation-operations
+description: Fluxo operacional da central de confiança e segurança.
+scenarios:
+  - id: sla-and-assignment
+    given: um caso aberto recém-criado
+    expect:
+      - prioridade e due_at são criados automaticamente
+      - moderador ativo pode assumir e liberar o caso
+      - conta comum não acessa o workspace
+  - id: internal-notes-and-templates
+    given: um moderador com acesso a um caso
+    expect:
+      - nota interna registra autor e data
+      - modelo ativo pode ser vinculado ao caso
+      - ambas as ações geram auditoria sem copiar evidência sensível
+  - id: appeal-second-review
+    given: um recurso pendente contra uma sanção
+    expect:
+      - autor da sanção original não pode decidir o recurso
+      - outra pessoa moderadora pode aceitar ou rejeitar com justificativa
+      - recurso aceito encerra a sanção ativa
+  - id: metrics-and-export
+    given: um administrador ativo
+    expect:
+      - métricas agregadas não retornam conteúdo de mensagens ou mídia
+      - exportação acima de 90 dias é rejeitada
+      - exportação válida registra evento de auditoria

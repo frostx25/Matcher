@@ -1,0 +1,44 @@
+name: Deploy VM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: moderation-panel/pnpm-lock.yaml
+      - run: pnpm --dir moderation-panel install --frozen-lockfile
+      - run: pnpm --dir moderation-panel build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      - name: Prepare SSH
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_HOST_KEY: ${{ secrets.VM_HOST_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s' "$VM_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VM_HOST_KEY" > ~/.ssh/known_hosts
+      - name: Deploy immutable web files
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+        run: |
+          rsync -az --delete --exclude admin/ --exclude .git/ site/ "$VM_USER@$VM_HOST:/home/ubuntu/vibeali-site/"
+          rsync -az --delete moderation-panel/dist/ "$VM_USER@$VM_HOST:/home/ubuntu/vibeali-site/admin/"
+          ssh "$VM_USER@$VM_HOST" 'cd /home/ubuntu/vibeali-site && docker compose up -d && docker compose ps'

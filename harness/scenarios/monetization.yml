@@ -1,0 +1,73 @@
+version: 1
+domain: monetization
+
+scenarios:
+  - id: MON-001-server-authority
+    name: O servidor decide o plano e os limites
+    given:
+      - authenticated_user: true
+      - client_claimed_plan: unlimited
+      - server_entitlement_plan: free
+    when:
+      - client_requests_premium_feature: true
+    then:
+      - effective_plan: free
+      - client_cannot_grant_entitlement: true
+
+  - id: MON-002-plan-limits
+    name: Cada plano recebe a cota contratada
+    given:
+      - plans: [free, extra, pro, unlimited]
+    when:
+      - read_authoritative_entitlements: true
+    then:
+      - free_new_conversations_per_24h: 5
+      - extra_new_conversations_per_24h: 20
+      - pro_new_conversations_per_24h: 50
+      - unlimited_has_no_commercial_quota: true
+      - anti_spam_limits_remain_active: true
+
+  - id: MON-003-safety-is-free
+    name: Segurança nunca depende de assinatura
+    given:
+      - plan: free
+    when:
+      - user_opens_safety_controls: true
+    then:
+      - block_available: true
+      - report_available: true
+      - appeal_available: true
+      - account_deletion_available: true
+
+  - id: MON-004-billing-unavailable
+    name: Sem Play Console não existe compra simulada
+    given:
+      - play_billing_configured: false
+    when:
+      - user_opens_plans: true
+    then:
+      - catalog_visible: true
+      - purchase_button_enabled: false
+      - availability_message: Em breve
+      - entitlement_unchanged: true
+
+  - id: MON-005-favorite-quota
+    name: Favoritos obedecem ao entitlement do servidor
+    given:
+      - server_entitlement_plan: free
+      - existing_favorites: 20
+    when:
+      - user_adds_new_favorite: true
+    then:
+      - request_rejected: FAVORITE_LIMIT_REACHED
+      - removing_existing_favorite_remains_available: true
+
+  - id: MON-006-entitlement-snapshot
+    name: O cliente recebe uma visão somente leitura do plano
+    given:
+      - authenticated_user: true
+    when:
+      - user_reads_subscription_plan: true
+    then:
+      - plan_and_features_come_from_server: true
+      - direct_entitlement_write_denied: true

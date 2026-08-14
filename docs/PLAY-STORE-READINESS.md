@@ -11,6 +11,7 @@
 ## Bloqueios antes de enviar para análise
 
 - [ ] Criar o projeto Supabase de produção separado e aplicar migrations/functions por pipeline.
+- [x] Documentar separação Dev/Prod, configuração de CI e responsabilidades da VM.
 - [ ] Definir a chave de upload da Play Store fora do repositório e guardar cópia recuperável.
 - [x] Publicar Política de Privacidade em `https://vibeali.shop/privacidade/`.
 - [x] Publicar página web de solicitação de exclusão em `https://vibeali.shop/excluir-conta/`.

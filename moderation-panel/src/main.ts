@@ -8,6 +8,7 @@ import {
 import "./style.css";
 import "./console.css";
 import "./trust-desk.css";
+import "./workflow.css";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -16,7 +17,10 @@ const supabase = configured ? createClient(supabaseUrl!, anonKey!) : null;
 const endpoint = `${supabaseUrl ?? ""}/functions/v1/moderation-profile-photos`;
 const UUID = /^[0-9a-f-]{36}$/;
 
-type View = "overview" | "photos" | "reports" | "users" | "history" | "team";
+type View = "overview" | "photos" | "reports" | "appeals" | "metrics" | "users" | "history" | "team";
+type Appeal = { appeal_id:string; user_id:string; sanction_id:string; statement:string; state:string; created_at:string; original_reviewer:string|null };
+type Metrics = { window_days:number; open_cases:number; overdue_cases:number; resolved:number; median_resolution_hours:number|null; appeals_pending:number; appeals_reversed:number };
+type Workspace = { operation:{priority:string;due_at:string;assigned_to:string|null;second_review_required:boolean;response_template_key:string|null}; notes:Array<{id:number;author_name:string|null;note:string;created_at:string}>; templates:Array<{key:string;title:string;body:string}> };
 type Overview = {
   role: "reviewer" | "admin";
   photo_reviews: number;
@@ -157,6 +161,9 @@ const state = {
   users: [] as UserRow[],
   audit: [] as AuditRow[],
   staff: [] as StaffRow[],
+  appeals: [] as Appeal[],
+  metrics: null as Metrics | null,
+  workspace: null as Workspace | null,
   evidence: [] as Evidence[],
   selectedCase: null as Case | null,
   loading: false,
@@ -215,9 +222,11 @@ function shell(content: string): string {
     ["overview", "Visão geral", "01"],
     ["photos", "Fotos", "02"],
     ["reports", "Denúncias", "03"],
-    ["users", "Contas", "04"],
-    ["history", "Histórico", "05"],
-    ["team", "Equipe", "06"],
+    ["appeals", "Recursos", "04"],
+    ["metrics", "Métricas", "05"],
+    ["users", "Contas", "06"],
+    ["history", "Histórico", "07"],
+    ["team", "Equipe", "08"],
   ];
   const queue =
     (state.overview?.photo_reviews ?? 0) + (state.overview?.open_reports ?? 0);
@@ -228,6 +237,8 @@ function viewTitle(): string {
     overview: "Visão geral",
     photos: "Fotos públicas",
     reports: "Denúncias",
+    appeals: "Recursos e segunda revisão",
+    metrics: "Métricas operacionais",
     users: "Gestão de contas",
     history: "Histórico",
     team: "Equipe de moderação",
@@ -250,6 +261,10 @@ function render(): void {
         ? photosMarkup()
         : state.view === "reports"
           ? reportsMarkup()
+          : state.view === "appeals"
+            ? appealsMarkup()
+            : state.view === "metrics"
+              ? metricsMarkup()
           : state.view === "users"
             ? usersMarkup()
             : state.view === "history"
@@ -317,8 +332,28 @@ function reportsMarkup(): string {
   return `${filters}<div class="queue-list">${state.cases.map((c) => `<button data-case="${c.case_id}"><div><span class="risk-dot ${c.priority}"></span><strong>${esc(c.display_name ?? "Perfil sem nome")}</strong><small>${label(c.reason)} · ${c.repeat_report_count} relato(s) · risco ${c.priority_score}</small></div><time>${date(c.created_at)}</time><span class="priority ${c.priority}">${c.priority === "critical" ? "Crítica" : c.priority === "high" ? "Alta" : "Normal"}</span></button>`).join("")}</div>`;
 }
 
+function appealsMarkup(): string {
+  if (!state.appeals.length) return empty("Nenhum recurso pendente", "Novos recursos aparecem aqui para uma segunda pessoa revisar.");
+  return `<div class="appeals-list">${state.appeals.map(a => `<article><div><strong>Recurso ${a.appeal_id.slice(0, 8)}</strong><small>${date(a.created_at)} · segunda revisão obrigatória</small><p>${esc(a.statement)}</p></div><div><button data-appeal="accepted" data-id="${a.appeal_id}" class="approve">Aceitar recurso</button><button data-appeal="rejected" data-id="${a.appeal_id}" class="danger">Manter medida</button></div></article>`).join("")}</div>`;
+}
+
+function metricsMarkup(): string {
+  const m = state.metrics;
+  if (!m) return empty("Métricas indisponíveis", "Atualize a operação.");
+  const values = [[m.open_cases,"Casos abertos"],[m.overdue_cases,"Fora do prazo"],[m.resolved,"Resolvidos"],[m.median_resolution_hours ?? "—","Mediana em horas"],[m.appeals_pending,"Recursos pendentes"],[m.appeals_reversed,"Decisões revertidas"]];
+  return `<section class="signal-board"><header><div><p class="eyebrow">Janela de ${m.window_days} dias</p><strong>Qualidade da moderação</strong></div>${isAdmin() ? '<button id="export-audit">Exportar auditoria</button>' : ''}</header><div>${values.map(([v,t])=>`<article><b>${v}</b><span>${t}</span></article>`).join("")}</div></section>`;
+}
+
+function workflowMarkup(): string {
+  const w = state.workspace;
+  if (!w) return `<section class="workflow-card"><p class="muted">Carregando operação do caso…</p></section>`;
+  const o = w.operation;
+  const overdue = new Date(o.due_at).getTime() < Date.now();
+  return `<section class="workflow-card"><header><div><p class="eyebrow">Operação e SLA</p><strong class="sla ${overdue ? "overdue" : ""}">${overdue ? "Prazo vencido" : `Prazo ${date(o.due_at)}`}</strong></div><span class="priority ${o.priority}">${label(o.priority)}</span></header><div class="workflow-actions"><button data-workflow="${o.assigned_to ? "release" : "assign_self"}" class="quiet">${o.assigned_to ? "Liberar caso" : "Assumir caso"}</button><select id="workflow-priority"><option value="critical">Crítica · 2h</option><option value="high">Alta · 8h</option><option value="normal">Normal · 24h</option><option value="low">Baixa · 72h</option></select><button data-workflow="set_priority">Atualizar prioridade</button></div><label>Nota interna</label><textarea id="workflow-note" maxlength="2000" placeholder="Contexto para a equipe, sem dados desnecessários"></textarea><button data-workflow="add_note">Registrar nota</button><label>Modelo de resposta</label><select id="workflow-template"><option value="">Selecione</option>${w.templates.map(t=>`<option value="${esc(t.key)}" ${o.response_template_key===t.key?"selected":""}>${esc(t.title)}</option>`).join("")}</select><button data-workflow="select_template">Vincular modelo</button><button data-workflow="require_second_review" class="quiet" ${o.second_review_required?"disabled":""}>${o.second_review_required?"Segunda revisão exigida":"Exigir segunda revisão"}</button><div class="internal-notes"><strong>Histórico interno</strong>${w.notes.length?w.notes.map(n=>`<article><p>${esc(n.note)}</p><small>${esc(n.author_name??"Equipe")} · ${date(n.created_at)}</small></article>`).join(""):`<p class="muted">Nenhuma nota interna.</p>`}</div></section>`;
+}
+
 function caseDetailMarkup(c: Case): string {
-  return `<button id="back-cases" class="quiet">← Voltar à fila</button><div class="case-layout"><section><p class="eyebrow">Caso ${esc(c.case_id.slice(0, 8))}</p><h2>${esc(c.display_name ?? "Perfil sem nome")}</h2><div class="case-facts"><span>Motivo <b>${label(c.reason)}</b></span><span>Reincidência <b>${c.repeat_report_count}</b></span><span>Conta <b>${label(c.account_status)}</b></span></div>${c.details ? `<blockquote>${esc(c.details)}</blockquote>` : ""}${c.message_body ? `<div class="evidence-text"><small>MENSAGEM DENUNCIADA</small><p>${esc(c.message_body)}</p></div>` : ""}${c.has_album_evidence ? `<div class="album-evidence"><div><strong>Evidência privada vinculada</strong><small>Somente objetos preservados neste caso.</small></div><button id="load-evidence">Carregar prévias por 60 s</button></div>${state.evidence.length ? `<div class="evidence-grid">${state.evidence.map((e, i) => `<article><img src="${esc(e.preview_url)}" alt="Evidência ${i + 1}"><button data-remove-item="${esc(e.album_item_id)}" data-album="${e.album_id}" ${!e.album_item_id ? "disabled" : ""}>Remover item</button></article>`).join("")}</div><button id="remove-album" data-album="${state.evidence[0].album_id}" class="danger">Remover álbum denunciado</button>` : ""}` : ""}</section><aside><strong>Decisão do caso</strong><p class="muted">A ação fica registrada no histórico.</p><button data-case-action="resolve_case" class="approve">Resolver caso</button><button data-case-action="dismiss_case" class="quiet">Descartar denúncia</button>${isAdmin() ? `<hr><strong>Sanção da conta</strong>${sanctionButtons(c.reported_user_id)}` : '<p class="muted">Sanções exigem papel de administrador.</p>'}</aside></div>`;
+  return `<button id="back-cases" class="quiet">← Voltar à fila</button>${workflowMarkup()}<div class="case-layout"><section><p class="eyebrow">Caso ${esc(c.case_id.slice(0, 8))}</p><h2>${esc(c.display_name ?? "Perfil sem nome")}</h2><div class="case-facts"><span>Motivo <b>${label(c.reason)}</b></span><span>Reincidência <b>${c.repeat_report_count}</b></span><span>Conta <b>${label(c.account_status)}</b></span></div>${c.details ? `<blockquote>${esc(c.details)}</blockquote>` : ""}${c.message_body ? `<div class="evidence-text"><small>MENSAGEM DENUNCIADA</small><p>${esc(c.message_body)}</p></div>` : ""}${c.has_album_evidence ? `<div class="album-evidence"><div><strong>Evidência privada vinculada</strong><small>Somente objetos preservados neste caso.</small></div><button id="load-evidence">Carregar prévias por 60 s</button></div>${state.evidence.length ? `<div class="evidence-grid">${state.evidence.map((e, i) => `<article><img src="${esc(e.preview_url)}" alt="Evidência ${i + 1}"><button data-remove-item="${esc(e.album_item_id)}" data-album="${e.album_id}" ${!e.album_item_id ? "disabled" : ""}>Remover item</button></article>`).join("")}</div><button id="remove-album" data-album="${state.evidence[0].album_id}" class="danger">Remover álbum denunciado</button>` : ""}` : ""}</section><aside><strong>Decisão do caso</strong><p class="muted">A ação fica registrada no histórico.</p><button data-case-action="resolve_case" class="approve">Resolver caso</button><button data-case-action="dismiss_case" class="quiet">Descartar denúncia</button>${isAdmin() ? `<hr><strong>Sanção da conta</strong>${sanctionButtons(c.reported_user_id)}` : '<p class="muted">Sanções exigem papel de administrador.</p>'}</aside></div>`;
 }
 
 function usersMarkup(): string {
@@ -360,7 +395,7 @@ function empty(title: string, detail: string): string {
 }
 function confirmMarkup(): string {
   const p = state.pending!;
-  return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><p class="eyebrow">Confirmar ação</p><h2>${esc(p.title)}</h2><p>${esc(p.detail)}</p>${p.action.includes("user") && p.action !== "reactivate_user" ? `<label>Motivo</label><select id="action-reason"><option value="safety">Segurança</option><option value="spam">Spam</option><option value="harassment">Assédio</option><option value="fake_profile">Perfil falso</option><option value="adult_content">Conteúdo adulto</option><option value="abusive_content">Conteúdo abusivo</option><option value="other">Outro</option></select>${p.action === "suspend_user" ? `<label>Duração</label><select id="suspension-hours"><option value="24">24 horas</option><option value="168">7 dias</option><option value="720">30 dias</option></select>` : ""}` : ""}<div><button id="cancel-action" class="quiet">Cancelar</button><button id="confirm-action" class="${p.action.includes("ban") || p.action.includes("remove") ? "danger" : "approve"}">Confirmar</button></div></section></div>`;
+  return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true"><p class="eyebrow">Confirmar ação</p><h2>${esc(p.title)}</h2><p>${esc(p.detail)}</p>${p.action.includes("user") && p.action !== "reactivate_user" ? `<label>Motivo</label><select id="action-reason"><option value="safety">Segurança</option><option value="spam">Spam</option><option value="harassment">Assédio</option><option value="fake_profile">Perfil falso</option><option value="adult_content">Conteúdo adulto</option><option value="abusive_content">Conteúdo abusivo</option><option value="other">Outro</option></select>${p.action === "suspend_user" ? `<label>Duração</label><select id="suspension-hours"><option value="24">24 horas</option><option value="72">3 dias</option><option value="168">7 dias</option><option value="336">14 dias</option><option value="720">30 dias</option></select>` : ""}` : ""}<div><button id="cancel-action" class="quiet">Cancelar</button><button id="confirm-action" class="${p.action.includes("ban") || p.action.includes("remove") ? "danger" : "approve"}">Confirmar</button></div></section></div>`;
 }
 
 async function api(path: string, init?: RequestInit): Promise<any> {
@@ -421,6 +456,8 @@ async function loadView() {
           sort_order: f.sort,
         })) ?? [];
     }
+    if (state.view === "appeals") state.appeals = (await rpc<Appeal[]>("list_moderation_appeals_for_review", { page_size: 50 })) ?? [];
+    if (state.view === "metrics") state.metrics = await rpc<Metrics>("get_moderation_metrics", { days: 30 });
     if (state.view === "users" && !state.selectedUser) {
       state.users =
         (await rpc<UserRow[]>("search_moderation_users", {
@@ -517,14 +554,16 @@ function bindConsole() {
     }),
   );
   document.querySelectorAll<HTMLButtonElement>("[data-case]").forEach((b) =>
-    b.addEventListener("click", () => {
+    b.addEventListener("click", async () => {
       state.selectedCase =
         state.cases.find((c) => c.case_id === b.dataset.case) ?? null;
+      state.workspace = state.selectedCase ? await rpc<Workspace>("get_moderation_case_workspace", { target_case_id: state.selectedCase.case_id }) : null;
       render();
     }),
   );
   document.querySelector("#back-cases")?.addEventListener("click", () => {
     state.selectedCase = null;
+    state.workspace = null;
     state.evidence = [];
     render();
   });
@@ -644,6 +683,34 @@ function bindConsole() {
     if (state.pending?.action === "photo") void decidePhoto();
     else void runAction();
   });
+  document.querySelectorAll<HTMLButtonElement>("[data-appeal]").forEach(b => b.addEventListener("click", async () => {
+    const note = window.prompt("Registre a justificativa da segunda revisão (mínimo 3 caracteres):");
+    if (!note) return;
+    try { await rpc("review_moderation_appeal", { target_appeal_id: b.dataset.id, decision: b.dataset.appeal, note_value: note }); state.message="Recurso revisado e auditado."; await loadView(); } catch(e) { state.message=(e as Error).message; render(); }
+  }));
+  document.querySelector("#export-audit")?.addEventListener("click", async () => {
+    try { const end=new Date(); const start=new Date(end.getTime()-30*86400000); const data=await rpc<unknown>("export_moderation_audit", { start_at:start.toISOString(), end_at:end.toISOString() }); const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`vibeali-auditoria-${end.toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); state.message="Exportação auditável gerada."; render(); } catch(e) { state.message=(e as Error).message; render(); }
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-workflow]").forEach((button) =>
+    button.addEventListener("click", async () => {
+      if (!state.selectedCase) return;
+      const action = button.dataset.workflow!;
+      const note = document.querySelector<HTMLTextAreaElement>("#workflow-note")?.value.trim() ?? null;
+      const priority = document.querySelector<HTMLSelectElement>("#workflow-priority")?.value ?? null;
+      const template = document.querySelector<HTMLSelectElement>("#workflow-template")?.value || null;
+      if (action === "add_note" && (!note || note.length < 3)) { state.message = "A nota interna precisa ter pelo menos 3 caracteres."; render(); return; }
+      if (action === "select_template" && !template) { state.message = "Selecione um modelo de resposta."; render(); return; }
+      try {
+        await rpc("moderation_workflow_action", { action, target_case_id: state.selectedCase.case_id,
+          priority_value: action === "set_priority" ? priority : null,
+          note_value: action === "add_note" ? note : null,
+          template_key_value: action === "select_template" ? template : null });
+        state.workspace = await rpc<Workspace>("get_moderation_case_workspace", { target_case_id: state.selectedCase.case_id });
+        state.message = "Fluxo operacional atualizado e auditado.";
+      } catch (e) { state.message = (e as Error).message; }
+      render();
+    }),
+  );
   document
     .querySelector<HTMLFormElement>("#user-search")
     ?.addEventListener("submit", (e) => {
