@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
+import shop.vibeali.app.BuildConfig
 import shop.vibeali.app.data.profile.ProfilePhotoProcessor
 import shop.vibeali.app.data.push.FirebasePushGateway
 import shop.vibeali.app.data.remote.MatcherSession
@@ -251,6 +252,7 @@ internal fun RemoteAuthScreen(
 ) {
     var email by rememberSaveable { mutableStateOf(otpRequestedFor.orEmpty()) }
     var otp by remember(otpRequestedFor, otpChallengeGeneration) { mutableStateOf("") }
+    val isProduction = BuildConfig.BACKEND_ENVIRONMENT.equals("prod", ignoreCase = true)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -260,7 +262,10 @@ internal fun RemoteAuthScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("VibeAli", color = MaterialTheme.colorScheme.onBackground, fontSize = 34.sp, fontWeight = FontWeight.Black)
-        Text("Entre por e-mail para usar o backend de desenvolvimento.", color = TextSecondary)
+        Text(
+            if (isProduction) "Entre por e-mail para acessar o VibeAli." else "Entre por e-mail para usar o backend de desenvolvimento.",
+            color = TextSecondary,
+        )
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -333,7 +338,15 @@ internal fun RemoteAuthScreen(
         }
         if (loading) CircularProgressIndicator(color = Pink, modifier = Modifier.align(Alignment.CenterHorizontally))
         errorMessage?.let { Text(it, color = Pink, modifier = Modifier.testTag("remote-auth-error")) }
-        Text("Ambiente de desenvolvimento. Não use dados sensíveis ou de terceiros.", color = TextSecondary, fontSize = 12.sp)
+        Text(
+            if (isProduction) {
+                "Ambiente de produção. Seus dados são protegidos conforme nossa Política de Privacidade."
+            } else {
+                "Ambiente de desenvolvimento. Não use dados sensíveis ou de terceiros."
+            },
+            color = TextSecondary,
+            fontSize = 12.sp,
+        )
     }
 }
 

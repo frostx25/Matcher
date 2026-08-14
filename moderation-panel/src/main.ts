@@ -1,4 +1,8 @@
-import { createClient, type Session } from "@supabase/supabase-js";
+import {
+  createClient,
+  type RealtimeChannel,
+  type Session,
+} from "@supabase/supabase-js";
 import {
   decisionLabel,
   formatSubmittedAt,
@@ -171,6 +175,9 @@ const state = {
   pending: null as PendingAction | null,
   search: "",
   selectedUser: null as UserDetail | null,
+  realtimeStatus: "connecting" as "connecting" | "live" | "offline",
+  syncing: false,
+  lastSyncedAt: null as Date | null,
   reportFilters: {
     reason: "all",
     evidence: "all",
@@ -181,6 +188,8 @@ const state = {
 const root = document.querySelector<HTMLDivElement>("#app")!;
 let idleTimer = 0;
 let autoRefreshTimer = 0;
+let realtimeRefreshTimer = 0;
+let realtimeChannel: RealtimeChannel | null = null;
 
 function esc(value: unknown): string {
   return String(value ?? "").replace(
@@ -217,6 +226,10 @@ function isAdmin(): boolean {
   return state.overview?.role === "admin";
 }
 
+function setSyncingIndicator(active: boolean): void {
+  root.querySelector(".console-main")?.classList.toggle("syncing", active);
+}
+
 function shell(content: string): string {
   const nav: Array<[View, string, string]> = [
     ["overview", "Visão geral", "01"],
@@ -230,7 +243,14 @@ function shell(content: string): string {
   ];
   const queue =
     (state.overview?.photo_reviews ?? 0) + (state.overview?.open_reports ?? 0);
-  return `<div class="console"><aside class="console-nav"><div class="brand"><span aria-hidden="true"><b>V</b></span><div><strong>VIBEALI</strong><small>TRUST DESK</small></div></div><nav aria-label="Seções da central">${nav.map(([id, text, icon]) => `<button data-view="${id}" class="${state.view === id ? "active" : ""}" ${id === "team" && !isAdmin() ? "disabled" : ""}><i>${icon}</i><span>${text}</span></button>`).join("")}</nav><div class="pulse-card"><div class="pulse-orbit" aria-hidden="true"><i></i></div><div><strong>Operação ativa</strong><small>${queue ? `${queue} item(ns) na fila` : "Filas sob controle"}</small></div></div><div class="role-card"><span>${isAdmin() ? "Administrador" : "Revisor"}</span><small>${isAdmin() ? "Controle completo" : "Conteúdo e casos"}</small></div><button id="logout" class="quiet">Encerrar sessão</button></aside><section class="console-main"><header><div><p class="eyebrow">Central de confiança / ${isAdmin() ? "admin" : "revisão"}</p><h1>${viewTitle()}</h1></div><div class="header-tools"><span class="live"><i></i> Atualização automática</span><button id="refresh" class="quiet">Atualizar agora</button></div></header>${state.loading ? `<div class="center"><div class="loader"></div><p>Sincronizando a operação…</p></div>` : content}</section>${state.pending ? confirmMarkup() : ""}<p class="toast" role="status">${esc(state.message)}</p></div>`;
+  const liveLabel = state.syncing
+    ? "Sincronizando"
+    : state.realtimeStatus === "live"
+      ? "Ao vivo"
+      : state.realtimeStatus === "connecting"
+        ? "Conectando"
+        : "Reconectando";
+  return `<div class="console"><aside class="console-nav"><div class="brand"><span aria-hidden="true"><b>V</b></span><div><strong>VIBEALI</strong><small>TRUST DESK</small></div></div><nav aria-label="Seções da central">${nav.map(([id, text, icon]) => `<button data-view="${id}" class="${state.view === id ? "active" : ""}" ${id === "team" && !isAdmin() ? "disabled" : ""}><i>${icon}</i><span>${text}</span></button>`).join("")}</nav><div class="pulse-card"><div class="pulse-orbit" aria-hidden="true"><i></i></div><div><strong>Operação ativa</strong><small>${queue ? `${queue} item(ns) na fila` : "Filas sob controle"}</small></div></div><div class="role-card"><span>${isAdmin() ? "Administrador" : "Revisor"}</span><small>${isAdmin() ? "Controle completo" : "Conteúdo e casos"}</small></div><button id="logout" class="quiet">Encerrar sessão</button></aside><section class="console-main ${state.syncing ? "syncing" : ""}"><header><div><p class="eyebrow">Central de confiança / ${isAdmin() ? "admin" : "revisão"}</p><h1>${viewTitle()}</h1></div><div class="header-tools"><span class="live ${state.realtimeStatus}"><i></i> ${liveLabel}</span><button id="refresh" class="quiet">Atualizar agora</button></div></header>${state.loading ? `<div class="center"><div class="loader"></div><p>Preparando a central…</p></div>` : content}</section>${state.pending ? confirmMarkup() : ""}<p class="toast" role="status">${esc(state.message)}</p></div>`;
 }
 function viewTitle(): string {
   return {
@@ -245,7 +265,9 @@ function viewTitle(): string {
   }[state.view];
 }
 
-function render(): void {
+function render(preserveViewport = false): void {
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   if (!configured) {
     root.innerHTML = `<main class="center"><section class="notice"><h1>Configure o Supabase</h1><p>Use as variáveis públicas descritas em <code>.env.example</code>.</p></section></main>`;
     return;
@@ -272,6 +294,9 @@ function render(): void {
               : teamMarkup();
   root.innerHTML = shell(content);
   bindConsole();
+  if (preserveViewport) {
+    window.requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
+  }
 }
 
 function renderLogin(): void {
@@ -433,11 +458,16 @@ async function rpc<T>(
 async function loadOverview() {
   state.overview = await rpc<Overview>("get_moderation_console_overview");
 }
-async function loadView() {
-  if (state.loading) return;
-  state.loading = true;
-  state.message = "";
-  render();
+async function loadView(showLoader = true) {
+  if (state.loading || state.syncing) return;
+  if (showLoader) {
+    state.loading = true;
+    state.message = "";
+    render();
+  } else {
+    state.syncing = true;
+    setSyncingIndicator(true);
+  }
   try {
     await loadOverview();
     if (state.view === "photos") {
@@ -477,7 +507,13 @@ async function loadView() {
     state.message = e instanceof Error ? e.message : "Falha ao atualizar.";
   } finally {
     state.loading = false;
-    render();
+    state.syncing = false;
+    setSyncingIndicator(false);
+    state.lastSyncedAt = new Date();
+    const active = document.activeElement;
+    const editing = active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+    if (showLoader || !editing) render(!showLoader);
   }
 }
 async function runAction() {
@@ -536,7 +572,7 @@ function bindConsole() {
     ?.addEventListener("click", () => supabase!.auth.signOut());
   document
     .querySelector("#refresh")
-    ?.addEventListener("click", () => loadView());
+    ?.addEventListener("click", () => loadView(false));
   document.querySelectorAll<HTMLButtonElement>("[data-photo]").forEach((b) =>
     b.addEventListener("click", () => {
       const item = state.photos[0];
@@ -833,23 +869,59 @@ function resetAutoRefresh() {
   clearInterval(autoRefreshTimer);
   if (state.session)
     autoRefreshTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadView();
-    }, 15_000);
+      if (document.visibilityState === "visible") void loadView(false);
+    }, 60_000);
+}
+
+function scheduleRealtimeRefresh(): void {
+  clearTimeout(realtimeRefreshTimer);
+  realtimeRefreshTimer = window.setTimeout(() => void loadView(false), 250);
+}
+
+function resetRealtime(): void {
+  clearTimeout(realtimeRefreshTimer);
+  if (realtimeChannel) {
+    void supabase?.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+  if (!state.session || !supabase) return;
+  state.realtimeStatus = "connecting";
+  realtimeChannel = supabase
+    .channel("moderation-console-sync")
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "moderation_console_sync",
+      },
+      scheduleRealtimeRefresh,
+    )
+    .subscribe((status) => {
+      const next = status === "SUBSCRIBED" ? "live" :
+        status === "CHANNEL_ERROR" || status === "TIMED_OUT" ? "offline" :
+          "connecting";
+      if (state.realtimeStatus !== next) {
+        state.realtimeStatus = next;
+        render(true);
+      }
+    });
 }
 ["click", "keydown", "pointerdown"].forEach((event) =>
   window.addEventListener(event, resetIdle, { passive: true }),
 );
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state.session) void loadView();
+  if (document.visibilityState === "visible" && state.session) void loadView(false);
 });
 window.addEventListener("focus", () => {
-  if (state.session) void loadView();
+  if (state.session) void loadView(false);
 });
 supabase?.auth.onAuthStateChange((_event, session) => {
   state.session = session;
   resetIdle();
   resetAutoRefresh();
+  resetRealtime();
   render();
-  if (session) window.setTimeout(() => void loadView(), 0);
+  if (session) window.setTimeout(() => void loadView(true), 0);
 });
 render();

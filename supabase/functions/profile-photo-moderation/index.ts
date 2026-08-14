@@ -160,6 +160,9 @@ Deno.serve(async (request) => {
             },
           );
           if (!response.ok) {
+            console.warn("profile-photo-moderation provider request failed", {
+              status: response.status,
+            });
             errorCode = response.status >= 500 || response.status === 429
               ? "MODERATION_UNAVAILABLE"
               : "MODERATION_INVALID_RESPONSE";
@@ -174,7 +177,12 @@ Deno.serve(async (request) => {
                 // Fail closed below without recording the provider response.
               }
               const decision = extractOpenAIModerationDecision(parsed);
-              if (!decision) errorCode = "MODERATION_INVALID_RESPONSE";
+              if (!decision) {
+                console.warn(
+                  "profile-photo-moderation provider response shape invalid",
+                );
+                errorCode = "MODERATION_INVALID_RESPONSE";
+              }
               else outcome = decision;
             }
           }
