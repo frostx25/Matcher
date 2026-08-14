@@ -6,8 +6,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val matcherBackendEnvironment = providers.gradleProperty("backendEnv").orElse("dev").get()
+require(matcherBackendEnvironment in setOf("dev", "prod")) { "backendEnv must be dev or prod" }
+
 val matcherLocalProperties = Properties().apply {
-    val propertiesFile = rootProject.file("local.properties")
+    val propertiesFile = rootProject.file(
+        if (matcherBackendEnvironment == "prod") "local.prod.properties" else "local.properties",
+    )
     if (propertiesFile.exists()) propertiesFile.inputStream().use(::load)
 }
 
@@ -36,6 +41,7 @@ android {
             "SUPABASE_URL",
             quotedBuildConfig(matcherLocalProperties.getProperty("SUPABASE_URL", "")),
         )
+        buildConfigField("String", "BACKEND_ENVIRONMENT", quotedBuildConfig(matcherBackendEnvironment))
         buildConfigField(
             "String",
             "SUPABASE_PUBLISHABLE_KEY",

@@ -12,6 +12,7 @@ moderation-panel/*.tsbuildinfo
 
 # Local SDK configuration
 local.properties
+local.*.properties
 
 # Local installer/session artifacts
 inst_user_settings.tmp

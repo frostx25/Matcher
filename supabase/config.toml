@@ -6,6 +6,14 @@ site_url = "https://vibeali.shop"
 additional_redirect_urls = ["matcher://auth-callback", "https://vibeali.shop/auth/callback"]
 enable_signup = true
 
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+double_confirm_changes = true
+otp_length = 6
+otp_expiry = 3600
+max_frequency = "60s"
+
 [db.seed]
 enabled = true
 sql_paths = ["./seed.sql"]
