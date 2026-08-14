@@ -169,6 +169,7 @@ internal fun MyPrivateAlbumScreen(
     var showSharing by rememberSaveable { mutableStateOf(false) }
     var showAlbumMenu by rememberSaveable { mutableStateOf(false) }
     var showPhotoSource by rememberSaveable { mutableStateOf(false) }
+    var previewPhotoId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedGrantIds by remember { mutableStateOf(emptySet<String>()) }
     val photoInput = rememberPhotoInputLauncher(onAddPhoto, onPhotoError)
 
@@ -261,6 +262,7 @@ internal fun MyPrivateAlbumScreen(
                 PrivatePhotoTile(
                     photo = photo,
                     canDelete = !loading,
+                    onOpen = { previewPhotoId = photo.id },
                     onDelete = { onDeletePhoto(photo.id) },
                 )
             }
@@ -343,6 +345,13 @@ internal fun MyPrivateAlbumScreen(
         onDismiss = { showPhotoSource = false },
         launcher = photoInput,
     )
+
+    photos.firstOrNull { it.id == previewPhotoId }?.let { photo ->
+        PrivatePhotoPreviewDialog(
+            photo = photo,
+            onDismiss = { previewPhotoId = null },
+        )
+    }
 
     if (showDeleteAlbum) {
         AlertDialog(
@@ -732,6 +741,7 @@ internal fun ReceivedPrivateAlbumScreen(
     onReport: (String, String?) -> Unit,
 ) {
     var showReport by rememberSaveable { mutableStateOf(false) }
+    var previewPhotoId by rememberSaveable { mutableStateOf<String?>(null) }
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = Modifier
@@ -746,7 +756,12 @@ internal fun ReceivedPrivateAlbumScreen(
             AlbumHeader("Álbum de $ownerName", "Acesso privado", onBack)
         }
         items(photos.sortedBy { it.position }, key = { it.id }) { photo ->
-            PrivatePhotoTile(photo = photo, canDelete = false, onDelete = {})
+            PrivatePhotoTile(
+                photo = photo,
+                canDelete = false,
+                onOpen = { previewPhotoId = photo.id },
+                onDelete = {},
+            )
         }
         if (photos.isEmpty() && !loading) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -790,6 +805,12 @@ internal fun ReceivedPrivateAlbumScreen(
             },
         )
     }
+    photos.firstOrNull { it.id == previewPhotoId }?.let { photo ->
+        PrivatePhotoPreviewDialog(
+            photo = photo,
+            onDismiss = { previewPhotoId = null },
+        )
+    }
 }
 
 @Composable
@@ -813,6 +834,7 @@ private fun AlbumHeader(title: String, subtitle: String, onBack: () -> Unit) {
 private fun PrivatePhotoTile(
     photo: PrivateAlbumPhotoUi,
     canDelete: Boolean,
+    onOpen: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val bitmap by produceState<android.graphics.Bitmap?>(
@@ -830,6 +852,7 @@ private fun PrivatePhotoTile(
             .fillMaxWidth()
             .aspectRatio(0.82f)
             .background(Surface, RoundedCornerShape(18.dp))
+            .then(if (bitmap != null) Modifier.clickable(onClick = onOpen) else Modifier)
             .testTag("private-album-photo-${photo.id}"),
     ) {
         if (bitmap != null) {
@@ -862,6 +885,46 @@ private fun PrivatePhotoTile(
             }
         }
     }
+}
+
+@Composable
+private fun PrivatePhotoPreviewDialog(
+    photo: PrivateAlbumPhotoUi,
+    onDismiss: () -> Unit,
+) {
+    val bitmap by produceState<android.graphics.Bitmap?>(
+        initialValue = null,
+        key1 = photo.id,
+        key2 = photo.bytes,
+    ) {
+        value = PrivateAlbumImageDecoder.decode(photo.bytes)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("private-photo-preview"),
+        title = { Text("Foto privada") },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.82f)
+                    .background(Black, RoundedCornerShape(18.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = requireNotNull(bitmap).asImageBitmap(),
+                        contentDescription = "Foto privada ampliada",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Icon(Icons.Outlined.Lock, "Imagem privada indisponível", tint = TextSecondary)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
+    )
 }
 
 @Composable

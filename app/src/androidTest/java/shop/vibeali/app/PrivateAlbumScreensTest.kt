@@ -236,6 +236,38 @@ class PrivateAlbumScreensTest {
     }
 
     @Test
+    fun ownerCanOpenLoadedPhotoPreview() {
+        val photo = PrivateAlbumPhotoUi(
+            id = "synthetic-preview-photo",
+            position = 0,
+            bytes = SYNTHETIC_PIXEL_PNG.copyOf(),
+        )
+        composeRule.setContent {
+            MatcherTheme {
+                MyPrivateAlbumScreen(
+                    albumExists = true,
+                    photos = listOf(photo),
+                    grants = emptyList(),
+                    targets = emptyList(),
+                    loading = false,
+                    errorMessage = null,
+                    onBack = {},
+                    onAddPhoto = {},
+                    onPhotoError = {},
+                    onDeletePhoto = {},
+                    onToggleGrant = { _, _ -> },
+                    onRevokeGrants = {},
+                    onDeleteAlbum = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("private-album-photo-${photo.id}").performClick()
+        composeRule.onNodeWithTag("private-photo-preview").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Foto privada ampliada").assertIsDisplayed()
+    }
+
+    @Test
     fun reportCanTargetOnlyOnePrivatePhoto() {
         val first = PrivateAlbumPhotoUi("10000000-0000-4000-8000-000000000001", 0, byteArrayOf(0x13))
         val second = PrivateAlbumPhotoUi("10000000-0000-4000-8000-000000000002", 1, byteArrayOf(0x37))

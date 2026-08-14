@@ -1,7 +1,19 @@
-version: 10
+version: 11
 domain: private-photo-album
 
 scenarios:
+  - id: ALBUM-000b-open-photo-preview
+    name: Titular e destinatário autorizado abrem a foto ampliada
+    given:
+      - private_album_photo_loaded: synthetic-item-a
+      - viewer_is_owner_or_current_grantee: true
+    when:
+      - viewer_taps_photo_thumbnail: synthetic-item-a
+    then:
+      - private_photo_preview_visible: true
+      - preview_mutates_album: false
+      - revoked_or_invalid_photo_preview_visible: false
+
   - id: ALBUM-000-camera-or-gallery
     name: Foto do álbum pode vir da câmera ou da galeria
     given:
