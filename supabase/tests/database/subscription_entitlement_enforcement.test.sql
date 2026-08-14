@@ -1,4 +1,7 @@
 begin;
+set local role postgres;
+set local search_path = public, testing, extensions;
+grant usage on schema testing to anon, authenticated, service_role;
 select plan(6);
 select has_function('public','get_my_subscription_plan',array[]::text[],'entitlement snapshot RPC exists');
 select function_returns('public','get_my_subscription_plan',array[]::text[],'jsonb','snapshot is normalized JSON');

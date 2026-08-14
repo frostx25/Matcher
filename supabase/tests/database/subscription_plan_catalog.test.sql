@@ -1,6 +1,7 @@
 begin;
 set local role postgres;
 set local search_path = public, testing, extensions;
+grant usage on schema testing to anon, authenticated, service_role;
 select plan(10);
 
 select has_table('public', 'subscription_plan_catalog', 'plan catalog exists');
